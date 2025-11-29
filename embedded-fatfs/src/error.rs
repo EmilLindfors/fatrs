@@ -32,7 +32,10 @@ pub enum Error<T> {
     UnsupportedFileNameCharacter,
 }
 
-impl<T: Debug> IoError for Error<T> {
+impl<T> IoError for Error<T>
+where
+    T: Debug + core::error::Error + 'static,
+{
     fn kind(&self) -> ErrorKind {
         ErrorKind::Other
     }
@@ -80,9 +83,8 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: std::error::Error + 'static> std::error::Error for Error<T> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl<T: core::error::Error + 'static> core::error::Error for Error<T> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         if let Error::Io(io_error) = self {
             Some(io_error)
         } else {

@@ -15,7 +15,17 @@ impl<T> From<T> for BufStreamError<T> {
     }
 }
 
-impl<T: core::fmt::Debug> embedded_io_async::Error for BufStreamError<T> {
+impl<T: core::fmt::Display> core::fmt::Display for BufStreamError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BufStreamError::Io(e) => write!(f, "IO error: {}", e),
+        }
+    }
+}
+
+impl<T: core::fmt::Debug + core::fmt::Display> core::error::Error for BufStreamError<T> {}
+
+impl<T: core::fmt::Debug + core::fmt::Display> embedded_io_async::Error for BufStreamError<T> {
     fn kind(&self) -> ErrorKind {
         ErrorKind::Other
     }
@@ -104,11 +114,17 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for BufStream<T, SIZE> {
+impl<T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for BufStream<T, SIZE>
+where
+    T::Error: core::fmt::Debug + core::fmt::Display,
+{
     type Error = BufStreamError<T::Error>;
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE>
+where
+    T::Error: core::fmt::Debug + core::fmt::Display,
+{
     async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
@@ -157,7 +173,10 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE>
+where
+    T::Error: core::fmt::Debug + core::fmt::Display,
+{
     async fn write(&mut self, mut buf: &[u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
@@ -223,7 +242,10 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE> {
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE>
+where
+    T::Error: core::fmt::Debug + core::fmt::Display,
+{
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.current_offset = match pos {
             SeekFrom::Start(x) => x,

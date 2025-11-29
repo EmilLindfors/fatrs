@@ -124,12 +124,12 @@ impl FsStatusFlags {
 
 /// A sum of `Read` and `Seek` traits.
 pub trait ReadSeek: Read + Seek {}
-impl<T: IoBase + Read + Seek> ReadSeek for T {}
+impl<T: IoBase + Read + Seek> ReadSeek for T where T::Error: 'static {}
 
 /// A sum of `Read`, `Write` and `Seek` traits.
 pub trait ReadWriteSeek: Read + Write + Seek {}
 
-impl<T: IoBase + Read + Write + Seek> ReadWriteSeek for T {}
+impl<T: IoBase + Read + Write + Seek> ReadWriteSeek for T where T::Error: 'static {}
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Default, Debug)]
@@ -321,7 +321,10 @@ impl FileSystemStats {
 /// A FAT filesystem object.
 ///
 /// `FileSystem` struct is representing a state of a mounted FAT volume.
-pub struct FileSystem<IO: Read + Write + Seek, TP, OCC> {
+pub struct FileSystem<IO: Read + Write + Seek, TP, OCC>
+where
+    IO::Error: 'static,
+{
     pub(crate) disk: RefCell<IO>,
     pub(crate) options: FsOptions<TP, OCC>,
     fat_type: FatType,
@@ -709,7 +712,10 @@ impl<IO: Read + Write + Seek, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     }
 }
 
-pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC> {
+pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: 'static,
+{
     fs: &'a FileSystem<IO, TP, OCC>,
 }
 
@@ -753,7 +759,10 @@ impl<IO: ReadWriteSeek, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC> {
 fn fat_slice<S: ReadWriteSeek, B: BorrowMut<S>>(
     io: B,
     bpb: &BiosParameterBlock,
-) -> impl ReadWriteSeek<Error = Error<S::Error>> {
+) -> impl ReadWriteSeek<Error = Error<S::Error>>
+where
+    S::Error: 'static,
+{
     let sectors_per_fat = bpb.sectors_per_fat();
     let mirroring_enabled = bpb.mirroring_enabled();
     let (fat_first_sector, mirrors) = if mirroring_enabled {
@@ -766,7 +775,11 @@ fn fat_slice<S: ReadWriteSeek, B: BorrowMut<S>>(
     DiskSlice::from_sectors(fat_first_sector, sectors_per_fat, mirrors, bpb, io)
 }
 
-pub(crate) struct DiskSlice<B, S = B> {
+pub(crate) struct DiskSlice<B, S = B>
+where
+    S: IoBase,
+    S::Error: 'static,
+{
     begin: u64,
     size: u64,
     offset: u64,
@@ -802,7 +815,10 @@ impl<B: BorrowMut<S>, S: ReadWriteSeek> DiskSlice<B, S> {
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<B: Clone, S> Clone for DiskSlice<B, S> {
+impl<B: Clone, S: IoBase> Clone for DiskSlice<B, S>
+where
+    S::Error: 'static,
+{
     fn clone(&self) -> Self {
         Self {
             begin: self.begin,
@@ -816,7 +832,10 @@ impl<B: Clone, S> Clone for DiskSlice<B, S> {
     }
 }
 
-impl<B, S: IoBase> IoBase for DiskSlice<B, S> {
+impl<B, S: IoBase> IoBase for DiskSlice<B, S>
+where
+    S::Error: 'static,
+{
     type Error = Error<S::Error>;
 }
 
@@ -996,7 +1015,7 @@ impl FormatVolumeOptions {
     #[must_use]
     pub fn bytes_per_cluster(mut self, bytes_per_cluster: u32) -> Self {
         assert!(
-            bytes_per_cluster.count_ones() == 1 && bytes_per_cluster >= 512,
+            bytes_per_cluster.is_power_of_two() && bytes_per_cluster >= 512,
             "Invalid bytes_per_cluster"
         );
         self.bytes_per_cluster = Some(bytes_per_cluster);
@@ -1026,7 +1045,7 @@ impl FormatVolumeOptions {
     #[must_use]
     pub fn bytes_per_sector(mut self, bytes_per_sector: u16) -> Self {
         assert!(
-            bytes_per_sector.count_ones() == 1 && bytes_per_sector >= 512,
+            bytes_per_sector.is_power_of_two() && bytes_per_sector >= 512,
             "Invalid bytes_per_sector"
         );
         self.bytes_per_sector = Some(bytes_per_sector);
@@ -1150,7 +1169,10 @@ impl FormatVolumeOptions {
 pub async fn format_volume<S: ReadWriteSeek>(
     storage: &mut S,
     options: FormatVolumeOptions,
-) -> Result<(), Error<S::Error>> {
+) -> Result<(), Error<S::Error>>
+where
+    S::Error: 'static,
+{
     trace!("format_volume");
     debug_assert!(storage.seek(SeekFrom::Current(0)).await? == 0);
 

@@ -20,7 +20,7 @@ use crate::FileContext;
 
 bitflags! {
     /// A FAT file attributes.
-    #[derive(Default)]
+    #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct FileAttributes: u8 {
         const READ_ONLY  = 0x01;
@@ -29,8 +29,8 @@ bitflags! {
         const VOLUME_ID  = 0x08;
         const DIRECTORY  = 0x10;
         const ARCHIVE    = 0x20;
-        const LFN        = Self::READ_ONLY.bits | Self::HIDDEN.bits
-                         | Self::SYSTEM.bits | Self::VOLUME_ID.bits;
+        const LFN        = Self::READ_ONLY.bits() | Self::HIDDEN.bits()
+                         | Self::SYSTEM.bits() | Self::VOLUME_ID.bits();
     }
 }
 
@@ -395,7 +395,7 @@ impl DirEntryData {
             Err(err) => {
                 return Err(err.into());
             }
-            Ok(_) => {}
+            Ok(()) => {}
         }
         let attrs = FileAttributes::from_bits_truncate(rdr.read_u8().await?);
         if attrs & FileAttributes::LFN == FileAttributes::LFN {
@@ -548,7 +548,10 @@ impl DirEntryEditor {
 ///
 /// `DirEntry` is returned by `DirIter` when reading a directory.
 #[derive(Clone)]
-pub struct DirEntry<'a, IO: ReadWriteSeek, TP, OCC> {
+pub struct DirEntry<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: 'static,
+{
     pub(crate) data: DirFileEntryData,
     pub(crate) short_name: ShortName,
     #[cfg(feature = "lfn")]

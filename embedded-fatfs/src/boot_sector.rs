@@ -1,6 +1,4 @@
 use core::cmp;
-use core::u16;
-use core::u8;
 
 use crate::dir_entry::DIR_ENTRY_SIZE;
 use crate::error::{Error, IoError};
@@ -365,7 +363,7 @@ impl BiosParameterBlock {
 
     pub(crate) fn root_dir_sectors(&self) -> u32 {
         let root_dir_bytes = u32::from(self.root_entries) * DIR_ENTRY_SIZE;
-        (root_dir_bytes + u32::from(self.bytes_per_sector) - 1) / u32::from(self.bytes_per_sector)
+        root_dir_bytes.div_ceil(u32::from(self.bytes_per_sector))
     }
 
     pub(crate) fn sectors_per_all_fats(&self) -> u32 {
@@ -401,7 +399,7 @@ impl BiosParameterBlock {
 
     pub(crate) fn clusters_from_bytes(&self, bytes: u64) -> u32 {
         let cluster_size = u64::from(self.cluster_size());
-        ((bytes + cluster_size - 1) / cluster_size) as u32
+        bytes.div_ceil(cluster_size) as u32
     }
 
     pub(crate) fn fs_info_sector(&self) -> u32 {
@@ -575,7 +573,7 @@ fn determine_sectors_per_fat(
     let t1: u64 = u64::from(t0) + u64::from(2 * u32::from(sectors_per_cluster));
     let bits_per_cluster = u32::from(sectors_per_cluster) * u32::from(bytes_per_sector) * BITS_PER_BYTE;
     let t2 = u64::from(bits_per_cluster / fat_type.bits_per_fat_entry() + u32::from(fats));
-    let sectors_per_fat = (t1 + t2 - 1) / t2;
+    let sectors_per_fat = t1.div_ceil(t2);
     // Note: casting is safe here because number of sectors per FAT cannot be bigger than total sectors number
     sectors_per_fat as u32
 }
@@ -633,7 +631,7 @@ fn determine_root_dir_sectors(root_dir_entries: u16, bytes_per_sector: u16, fat_
         0
     } else {
         let root_dir_bytes = u32::from(root_dir_entries) * DIR_ENTRY_SIZE;
-        (root_dir_bytes + u32::from(bytes_per_sector) - 1) / u32::from(bytes_per_sector)
+        root_dir_bytes.div_ceil(u32::from(bytes_per_sector))
     }
 }
 
@@ -674,7 +672,7 @@ fn format_bpb<E: IoError>(
     });
 
     let sectors_per_cluster = bytes_per_cluster / u32::from(bytes_per_sector);
-    assert!(sectors_per_cluster <= u32::from(u8::MAX));
+    assert!(u8::try_from(sectors_per_cluster).is_ok());
     let sectors_per_cluster = sectors_per_cluster as u8;
 
     let fats = options.fats.unwrap_or(2_u8);
@@ -717,7 +715,7 @@ fn format_bpb<E: IoError>(
     let sectors_per_fat_16 = if is_fat32 {
         0
     } else {
-        debug_assert!(sectors_per_fat <= u32::from(u16::MAX));
+        debug_assert!(u16::try_from(sectors_per_fat).is_ok());
         sectors_per_fat as u16
     };
     let bpb = BiosParameterBlock {
@@ -971,6 +969,14 @@ mod tests {
         impl embedded_io_async::ErrorType for Dummy {
             type Error = Self;
         }
+
+        impl core::fmt::Display for Dummy {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "Dummy error")
+            }
+        }
+
+        impl core::error::Error for Dummy {}
 
         impl embedded_io_async::Error for Dummy {
             fn kind(&self) -> embedded_io_async::ErrorKind {

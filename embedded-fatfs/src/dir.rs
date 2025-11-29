@@ -22,7 +22,10 @@ use crate::time::TimeProvider;
 
 const LFN_PADDING: u16 = 0xFFFF;
 
-pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek, TP, OCC> {
+pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: 'static,
+{
     File(File<'a, IO, TP, OCC>),
     Root(DiskSlice<FsIoAdapter<'a, IO, TP, OCC>, FsIoAdapter<'a, IO, TP, OCC>>),
 }
@@ -53,7 +56,10 @@ impl<IO: ReadWriteSeek, TP, OCC> Clone for DirRawStream<'_, IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> IoBase for DirRawStream<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> IoBase for DirRawStream<'_, IO, TP, OCC>
+where
+    IO::Error: 'static,
+{
     type Error = Error<IO::Error>;
 }
 
@@ -97,7 +103,10 @@ fn split_path(path: &str) -> (&str, Option<&str>) {
     })
 }
 
-enum DirEntryOrShortName<'a, IO: ReadWriteSeek, TP, OCC> {
+enum DirEntryOrShortName<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: 'static,
+{
     DirEntry(DirEntry<'a, IO, TP, OCC>),
     ShortName([u8; SFN_SIZE]),
 }
@@ -106,7 +115,10 @@ enum DirEntryOrShortName<'a, IO: ReadWriteSeek, TP, OCC> {
 ///
 /// This struct is created by the `open_dir` or `create_dir` methods on `Dir`.
 /// The root directory is returned by the `root_dir` method on `FileSystem`.
-pub struct Dir<'a, IO: ReadWriteSeek, TP, OCC> {
+pub struct Dir<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: 'static,
+{
     stream: DirRawStream<'a, IO, TP, OCC>,
     fs: &'a FileSystem<IO, TP, OCC>,
 }
@@ -129,7 +141,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         &self,
         name: &str,
         is_dir: Option<bool>,
-        mut short_name_gen: Option<&mut ShortNameGenerator>,
+        mut short_name_generator: Option<&mut ShortNameGenerator>,
     ) -> Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>> {
         let mut iter = self.iter();
         while let Some(r) = iter.next().await {
@@ -147,9 +159,9 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                 }
                 return Ok(e);
             }
-            // update short name generator state
-            if let Some(ref mut gen) = short_name_gen {
-                gen.add_existing(e.raw_short_name());
+            // update short name generatorerator state
+            if let Some(ref mut generator) = short_name_generator {
+                generator.add_existing(e.raw_short_name());
             }
         }
         Err(Error::NotFound) //("No such file or directory"))
@@ -172,25 +184,25 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         name: &str,
         is_dir: Option<bool>,
     ) -> Result<DirEntryOrShortName<'a, IO, TP, OCC>, Error<IO::Error>> {
-        let mut short_name_gen = ShortNameGenerator::new(name);
+        let mut short_name_generator = ShortNameGenerator::new(name);
         loop {
             // find matching entry
-            let r = self.find_entry(name, is_dir, Some(&mut short_name_gen)).await;
+            let r = self.find_entry(name, is_dir, Some(&mut short_name_generator)).await;
             match r {
-                // file not found - continue with short name generation
+                // file not found - continue with short name generatoreration
                 Err(Error::NotFound) => {}
                 // unexpected error - return it
                 Err(err) => return Err(err),
                 // directory already exists - return it
                 Ok(e) => return Ok(DirEntryOrShortName::DirEntry(e)),
-            };
-            // try to generate short name
-            if let Ok(name) = short_name_gen.generate() {
+            }
+            // try to generatorerate short name
+            if let Ok(name) = short_name_generator.generatorerate() {
                 return Ok(DirEntryOrShortName::ShortName(name));
             }
-            // there were too many collisions in short name generation
+            // there were too many collisions in short name generatoreration
             // try different checksum in the next iteration
-            short_name_gen.next_iteration();
+            short_name_generator.next_iteration();
         }
     }
 
@@ -248,15 +260,12 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         let mut e = self.clone();
         loop {
             let (name, rest_opt) = split;
-            match rest_opt {
-                Some(rest) => {
-                    split = split_path(rest);
-                    e = e.find_entry(name, Some(true), None).await?.to_dir();
-                }
-                None => {
-                    e = e.find_entry(name, Some(true), None).await?.to_dir();
-                    break;
-                }
+            if let Some(rest) = rest_opt {
+                split = split_path(rest);
+                e = e.find_entry(name, Some(true), None).await?.to_dir();
+            } else {
+                e = e.find_entry(name, Some(true), None).await?.to_dir();
+                break;
             }
         }
 
@@ -286,7 +295,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                     e = e.find_entry(name, Some(true), None).await?.to_dir();
                 }
                 None => {
-                    return Ok(e.find_entry(name, None, None).await?);
+                    return e.find_entry(name, None, None).await;
                 }
             }
         }
@@ -410,10 +419,10 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                 let entry = e.write_entry(name, sfn_entry).await?;
                 let dir = entry.to_dir();
                 // create special entries "." and ".."
-                let dot_sfn = ShortNameGenerator::generate_dot();
+                let dot_sfn = ShortNameGenerator::generatorerate_dot();
                 let sfn_entry = e.create_sfn_entry(dot_sfn, FileAttributes::DIRECTORY, entry.first_cluster());
                 dir.write_entry(".", sfn_entry).await?;
-                let dotdot_sfn = ShortNameGenerator::generate_dotdot();
+                let dotdot_sfn = ShortNameGenerator::generatorerate_dotdot();
                 let sfn_entry = e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, e.stream.first_cluster());
                 dir.write_entry("..", sfn_entry).await?;
                 Ok(dir)
@@ -555,7 +564,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
             }
         }
 
-        e_src.rename_internal(split_src.0, &dst_dir, split_dst.0).await
+        e_src.rename_internal(split_src.0, dst_dir, split_dst.0).await
     }
 
     async fn rename_internal(
@@ -580,7 +589,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                 // destination file exists and it is not the same as source file - fail
                 return Err(Error::AlreadyExists);
             }
-            // destionation file does not exist, short name has been generated
+            // destionation file does not exist, short name has been generatorerated
             DirEntryOrShortName::ShortName(short_name) => short_name,
         };
         // free long and short name entries
@@ -670,7 +679,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     ) -> Result<(DirRawStream<'a, IO, TP, OCC>, u64), Error<IO::Error>> {
         // get short name checksum
         let lfn_chsum = lfn_checksum(short_name);
-        // create LFN entries generator
+        // create LFN entries generatorerator
         let lfn_iter = LfnEntriesGenerator::new(lfn_utf16.as_ucs2_units(), lfn_chsum);
         // find space for new entries (multiple LFN entries and 1 SFN entry)
         let num_entries = lfn_iter.len() as u32 + 1;
@@ -737,7 +746,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Clone for Dir<'_,
 /// An iterator over the directory entries.
 ///
 /// This struct is created by the `iter` method on `Dir`.
-pub struct DirIter<'a, IO: ReadWriteSeek, TP, OCC> {
+pub struct DirIter<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: 'static,
+{
     stream: DirRawStream<'a, IO, TP, OCC>,
     fs: &'a FileSystem<IO, TP, OCC>,
     skip_volume: bool,
@@ -898,7 +910,7 @@ pub(crate) struct LfnBuffer {
 const MAX_LONG_NAME_LEN: usize = 255;
 
 #[cfg(feature = "lfn")]
-const MAX_LONG_DIR_ENTRIES: usize = (MAX_LONG_NAME_LEN + LFN_PART_LEN - 1) / LFN_PART_LEN;
+const MAX_LONG_DIR_ENTRIES: usize = MAX_LONG_NAME_LEN.div_ceil(LFN_PART_LEN);
 
 #[cfg(all(feature = "lfn", not(feature = "alloc")))]
 const LONG_NAME_BUFFER_LEN: usize = MAX_LONG_DIR_ENTRIES * LFN_PART_LEN;
@@ -1114,8 +1126,8 @@ struct LfnEntriesGenerator<'a> {
 #[cfg(feature = "lfn")]
 impl<'a> LfnEntriesGenerator<'a> {
     fn new(name_utf16: &'a [u16], checksum: u8) -> Self {
-        let num_entries = (name_utf16.len() + LFN_PART_LEN - 1) / LFN_PART_LEN;
-        // create generator using reverse iterator over chunks - first chunk can be shorter
+        let num_entries = name_utf16.len().div_ceil(LFN_PART_LEN);
+        // create generatorerator using reverse iterator over chunks - first chunk can be shorter
         LfnEntriesGenerator {
             checksum,
             name_parts_iter: name_utf16.chunks(LFN_PART_LEN).rev(),
@@ -1235,13 +1247,13 @@ impl ShortNameGenerator {
         }
     }
 
-    fn generate_dot() -> [u8; SFN_SIZE] {
+    fn generatorerate_dot() -> [u8; SFN_SIZE] {
         let mut short_name = [SFN_PADDING; SFN_SIZE];
         short_name[0] = b'.';
         short_name
     }
 
-    fn generate_dotdot() -> [u8; SFN_SIZE] {
+    fn generatorerate_dotdot() -> [u8; SFN_SIZE] {
         let mut short_name = [SFN_PADDING; SFN_SIZE];
         short_name[0] = b'.';
         short_name[1] = b'.';
@@ -1335,7 +1347,7 @@ impl ShortNameGenerator {
         chksum.0
     }
 
-    fn generate(&self) -> Result<[u8; SFN_SIZE], Error<()>> {
+    fn generatorerate(&self) -> Result<[u8; SFN_SIZE], Error<()>> {
         if !self.lossy_conv && self.name_fits && !self.exact_match {
             // If there was no lossy conversion and name fits into
             // 8.3 convention and there is no collision return it as is
@@ -1410,26 +1422,26 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_short_name() {
-        assert_eq!(ShortNameGenerator::new("Foo").generate().ok(), Some(*b"FOO        "));
-        assert_eq!(ShortNameGenerator::new("Foo.b").generate().ok(), Some(*b"FOO     B  "));
+    fn test_generatorerate_short_name() {
+        assert_eq!(ShortNameGenerator::new("Foo").generatorerate().ok(), Some(*b"FOO        "));
+        assert_eq!(ShortNameGenerator::new("Foo.b").generatorerate().ok(), Some(*b"FOO     B  "));
         assert_eq!(
-            ShortNameGenerator::new("Foo.baR").generate().ok(),
+            ShortNameGenerator::new("Foo.baR").generatorerate().ok(),
             Some(*b"FOO     BAR")
         );
         assert_eq!(
-            ShortNameGenerator::new("Foo+1.baR").generate().ok(),
+            ShortNameGenerator::new("Foo+1.baR").generatorerate().ok(),
             Some(*b"FOO_1~1 BAR")
         );
         assert_eq!(
-            ShortNameGenerator::new("ver +1.2.text").generate().ok(),
+            ShortNameGenerator::new("ver +1.2.text").generatorerate().ok(),
             Some(*b"VER_12~1TEX")
         );
         assert_eq!(
-            ShortNameGenerator::new(".bashrc.swp").generate().ok(),
+            ShortNameGenerator::new(".bashrc.swp").generatorerate().ok(),
             Some(*b"BASHRC~1SWP")
         );
-        assert_eq!(ShortNameGenerator::new(".foo").generate().ok(), Some(*b"FOO~1      "));
+        assert_eq!(ShortNameGenerator::new(".foo").generatorerate().ok(), Some(*b"FOO~1      "));
     }
 
     #[test]
@@ -1443,65 +1455,65 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_short_name_collisions_long() {
+    fn test_generatorerate_short_name_collisions_long() {
         let mut buf: [u8; SFN_SIZE];
-        let mut gen = ShortNameGenerator::new("TextFile.Mine.txt");
-        buf = gen.generate().unwrap();
+        let mut generator = ShortNameGenerator::new("TextFile.Mine.txt");
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"TEXTFI~1TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"TEXTFI~2TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"TEXTFI~3TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"TEXTFI~4TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"TE527D~1TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"TE527D~2TXT");
         for i in 3..10 {
-            gen.add_existing(&buf);
-            buf = gen.generate().unwrap();
+            generator.add_existing(&buf);
+            buf = generator.generatorerate().unwrap();
             assert_eq!(&buf, format!("TE527D~{}TXT", i).as_bytes());
         }
-        gen.add_existing(&buf);
-        assert!(gen.generate().is_err());
-        gen.next_iteration();
+        generator.add_existing(&buf);
+        assert!(generator.generatorerate().is_err());
+        generator.next_iteration();
         for _i in 0..4 {
-            buf = gen.generate().unwrap();
-            gen.add_existing(&buf);
+            buf = generator.generatorerate().unwrap();
+            generator.add_existing(&buf);
         }
-        buf = gen.generate().unwrap();
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"TE527E~1TXT");
     }
 
     #[test]
-    fn test_generate_short_name_collisions_short() {
+    fn test_generatorerate_short_name_collisions_short() {
         let mut buf: [u8; SFN_SIZE];
-        let mut gen = ShortNameGenerator::new("x.txt");
-        buf = gen.generate().unwrap();
+        let mut generator = ShortNameGenerator::new("x.txt");
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"X       TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"X~1     TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"X~2     TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"X~3     TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"X~4     TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"X40DA~1 TXT");
-        gen.add_existing(&buf);
-        buf = gen.generate().unwrap();
+        generator.add_existing(&buf);
+        buf = generator.generatorerate().unwrap();
         assert_eq!(&buf, b"X40DA~2 TXT");
     }
 }
