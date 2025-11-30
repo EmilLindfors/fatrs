@@ -6,6 +6,7 @@ pub(crate) trait ReadLeExt {
     async fn read_u8(&mut self) -> Result<u8, Self::Error>;
     async fn read_u16_le(&mut self) -> Result<u16, Self::Error>;
     async fn read_u32_le(&mut self) -> Result<u32, Self::Error>;
+    async fn read_u64_le(&mut self) -> Result<u64, Self::Error>;
 }
 
 impl<T: Read> ReadLeExt for T {
@@ -28,6 +29,12 @@ impl<T: Read> ReadLeExt for T {
         self.read_exact(&mut buf).await?;
         Ok(u32::from_le_bytes(buf))
     }
+
+    async fn read_u64_le(&mut self) -> Result<u64, Self::Error> {
+        let mut buf = [0_u8; 8];
+        self.read_exact(&mut buf).await?;
+        Ok(u64::from_le_bytes(buf))
+    }
 }
 
 pub(crate) trait WriteLeExt {
@@ -35,6 +42,7 @@ pub(crate) trait WriteLeExt {
     async fn write_u8(&mut self, n: u8) -> Result<(), Self::Error>;
     async fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error>;
     async fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error>;
+    async fn write_u64_le(&mut self, n: u64) -> Result<(), Self::Error>;
 }
 
 impl<T: Write> WriteLeExt for T {
@@ -51,6 +59,11 @@ impl<T: Write> WriteLeExt for T {
     }
 
     async fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error> {
+        self.write_all(&n.to_le_bytes()).await?;
+        Ok(())
+    }
+
+    async fn write_u64_le(&mut self, n: u64) -> Result<(), Self::Error> {
         self.write_all(&n.to_le_bytes()).await?;
         Ok(())
     }

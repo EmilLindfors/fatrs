@@ -585,11 +585,14 @@ fn try_fs_geometry(
     fat_type: FatType,
     root_dir_sectors: u32,
     fats: u8,
+    reserved_sectors_opt: Option<u16>,
 ) -> Result<(u16, u32), Error<()>> {
     // Note: most of implementations use 32 reserved sectors for FAT32 but it's wasting of space
     // This implementation uses only 8. This is enough to fit in two boot sectors (main and backup) with additional
     // bootstrap code and one FSInfo sector. It also makes FAT alligned to 4096 which is a nice number.
-    let reserved_sectors: u16 = if fat_type == FatType::Fat32 { 8 } else { 1 };
+    // Use user-specified reserved sectors or defaults (1 for FAT12/16, 8 for FAT32)
+    let reserved_sectors: u16 = reserved_sectors_opt
+        .unwrap_or_else(|| if fat_type == FatType::Fat32 { 8 } else { 1 });
 
     // Check if volume has enough space to accomodate reserved sectors, FAT, root directory and some data space
     // Having less than 8 sectors for FAT and data would make a little sense
@@ -641,6 +644,7 @@ fn determine_fs_geometry<E: IoError>(
     sectors_per_cluster: u8,
     root_dir_entries: u16,
     fats: u8,
+    reserved_sectors_opt: Option<u16>,
 ) -> Result<(FatType, u16, u32), Error<E>> {
     for &fat_type in &[FatType::Fat32, FatType::Fat16, FatType::Fat12] {
         let root_dir_sectors = determine_root_dir_sectors(root_dir_entries, bytes_per_sector, fat_type);
@@ -651,6 +655,7 @@ fn determine_fs_geometry<E: IoError>(
             fat_type,
             root_dir_sectors,
             fats,
+            reserved_sectors_opt,
         );
         if let Ok((reserved_sectors, sectors_per_fat)) = result {
             return Ok((fat_type, reserved_sectors, sectors_per_fat));
@@ -683,6 +688,7 @@ fn format_bpb<E: IoError>(
         sectors_per_cluster,
         root_dir_entries,
         fats,
+        options.reserved_sectors,
     )?;
 
     // drive_num should be 0 for floppy disks and 0x80 for hard disks - determine it using FAT type

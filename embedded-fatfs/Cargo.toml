@@ -43,6 +43,10 @@ cluster-bitmap-small = ["cluster-bitmap"]   # 1KB bitmap (8K clusters = 32MB @ 4
 cluster-bitmap-medium = ["cluster-bitmap"]  # 4KB bitmap (32K clusters = 128MB @ 4KB, 1GB @ 32KB)
 cluster-bitmap-large = ["cluster-bitmap"]   # 16KB bitmap (128K clusters = 512MB @ 4KB, 4GB @ 32KB)
 
+# Safety features
+transaction-safe = ["alloc"]  # Power-loss resilience with two-phase commit (medical/automotive/aerospace)
+file-locking = ["alloc"]      # Concurrent access protection (prevents corruption from multi-threaded writes)
+
 # Default features
 # Multi-cluster-io enabled by default for 2-5x throughput and 16x less flash wear
 default = ["chrono", "std", "alloc", "lfn", "unicode", "log", "fat-cache", "multi-cluster-io"]

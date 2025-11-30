@@ -87,9 +87,17 @@ mod dir_cache;
 #[cfg(feature = "cluster-bitmap")]
 mod cluster_bitmap;
 
+#[cfg(feature = "transaction-safe")]
+mod transaction;
+
 pub use crate::dir::*;
 pub use crate::dir_entry::*;
 pub use crate::error::*;
 pub use crate::file::*;
 pub use crate::fs::*;
 pub use crate::time::*;
+
+#[cfg(feature = "transaction-safe")]
+pub use crate::transaction::{
+    TransactionEntry, TransactionLog, TransactionState, TransactionStatistics, TransactionType,
+};

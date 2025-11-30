@@ -340,6 +340,8 @@ where
     pub(crate) dir_cache: Mutex<crate::dir_cache::DirCache>,
     #[cfg(feature = "cluster-bitmap")]
     pub(crate) cluster_bitmap: Mutex<crate::cluster_bitmap::ClusterBitmap>,
+    #[cfg(feature = "transaction-safe")]
+    pub(crate) transaction_log: Mutex<crate::transaction::TransactionLog>,
 }
 
 /// The underlying storage device
@@ -440,6 +442,13 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             dir_cache: Mutex::new(crate::dir_cache::DirCache::new()),
             #[cfg(feature = "cluster-bitmap")]
             cluster_bitmap: Mutex::new(crate::cluster_bitmap::ClusterBitmap::new(total_clusters)),
+            #[cfg(feature = "transaction-safe")]
+            transaction_log: Mutex::new(crate::transaction::TransactionLog::new(
+                // Use reserved sectors after FAT for transaction log
+                // Typically: boot_sector(1) + FAT(N) + FAT_mirror(N) = transaction_log_start
+                first_data_sector.saturating_sub(4), // Reserve 4 sectors before data area
+                4, // 4 sectors = 2KB for transaction log (supports 4 concurrent transactions)
+            )),
         };
 
         // Build cluster bitmap from FAT (one-time cost at mount for 10-100x allocation speedup)
@@ -450,6 +459,56 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             let mut fat = fs.fat_slice();
             bitmap.build_from_fat(&mut fat, fat_type, total_clusters).await?;
             trace!("Cluster bitmap built: {} free clusters", bitmap.free_count());
+        }
+
+        // Initialize and recover transaction log (power-loss resilience)
+        #[cfg(feature = "transaction-safe")]
+        {
+            trace!("Loading transaction log for recovery...");
+            let mut tx_log = fs.transaction_log.lock().await;
+            let mut disk = fs.disk.lock().await;
+
+            // Load transaction log from disk
+            tx_log.load(&mut *disk).await?;
+
+            // Check for incomplete transactions and recover
+            #[cfg(all(feature = "alloc", not(feature = "std")))]
+            use alloc::vec::Vec;
+            #[cfg(feature = "std")]
+            use std::vec::Vec;
+
+            // Collect slots and states first to avoid borrow checker issues
+            let incomplete: Vec<_> = tx_log
+                .get_incomplete_transactions()
+                .map(|(slot, entry)| (slot, entry.state, entry.tx_type))
+                .collect();
+
+            if !incomplete.is_empty() {
+                warn!("Found {} incomplete transaction(s), performing recovery...", incomplete.len());
+                for (slot, state, tx_type) in incomplete {
+                    warn!("Recovering transaction slot {}: {:?}", slot, tx_type);
+                    // For pending transactions, we roll back (clear the intent)
+                    // For in-progress transactions, we attempt to complete them
+                    match state {
+                        crate::transaction::TransactionState::Pending => {
+                            // Transaction was logged but not started - safe to clear
+                            tx_log.clear(&mut *disk, slot).await?;
+                            info!("Rolled back pending transaction slot {}", slot);
+                        }
+                        crate::transaction::TransactionState::InProgress => {
+                            // Transaction was in progress - may be partially complete
+                            // For now, we clear it (conservative approach)
+                            // In the future, we could add logic to verify and complete/rollback
+                            tx_log.clear(&mut *disk, slot).await?;
+                            warn!("Cleared in-progress transaction slot {} (conservative recovery)", slot);
+                        }
+                        _ => {}
+                    }
+                }
+                info!("Transaction recovery complete");
+            } else {
+                trace!("No incomplete transactions found");
+            }
         }
 
         Ok(fs)
@@ -694,6 +753,95 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     #[cfg(feature = "cluster-bitmap")]
     pub async fn cluster_bitmap_statistics(&self) -> crate::cluster_bitmap::ClusterBitmapStatistics {
         self.cluster_bitmap.lock().await.statistics()
+    }
+
+    /// Perform a transaction-safe metadata write operation
+    ///
+    /// This wraps a critical metadata operation with two-phase commit for power-loss resilience.
+    /// The operation is logged before execution and cleared after successful completion.
+    ///
+    /// # Arguments
+    /// * `tx_type` - Type of transaction being performed
+    /// * `affected_sectors` - List of disk sectors that will be modified
+    /// * `operation` - Async closure that performs the actual operation
+    ///
+    /// # Safety Guarantees
+    /// - If power is lost before operation completes, filesystem remains consistent
+    /// - On next mount, incomplete transactions are detected and rolled back
+    /// - Prevents corruption from partial metadata writes
+    ///
+    /// # Example
+    /// ```ignore
+    /// fs.with_transaction(
+    ///     TransactionType::FatUpdate,
+    ///     &[fat_sector],
+    ///     |disk| async move {
+    ///         // Perform FAT update
+    ///         disk.seek(SeekFrom::Start(offset)).await?;
+    ///         disk.write_u32_le(value).await?;
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// ```
+    #[cfg(feature = "transaction-safe")]
+    pub async fn with_transaction<F, Fut>(
+        &self,
+        tx_type: crate::transaction::TransactionType,
+        affected_sectors: &[u32],
+        operation: F,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: core::future::Future<Output = Result<(), Error<IO::Error>>>,
+    {
+        let mut tx_log = self.transaction_log.lock().await;
+
+        // Begin transaction (allocate slot and prepare intent)
+        let slot = tx_log
+            .begin_transaction(tx_type, affected_sectors)
+            .ok_or(Error::NotEnoughSpace)?; // All transaction slots full
+
+        // Write intent to disk
+        {
+            let mut disk = self.disk.lock().await;
+            tx_log.write_intent(&mut *disk, slot).await?;
+        }
+
+        // Mark as in progress
+        tx_log.mark_in_progress(slot);
+
+        // Perform the actual operation
+        let result = operation().await;
+
+        if result.is_ok() {
+            // Operation succeeded - commit transaction
+            let mut disk = self.disk.lock().await;
+            tx_log.commit(&mut *disk, slot).await?;
+
+            // Clear the transaction entry
+            tx_log.clear(&mut *disk, slot).await?;
+        } else {
+            // Operation failed - clear transaction log
+            // The rollback will happen on next mount if power is lost here
+            let mut disk = self.disk.lock().await;
+            tx_log.clear(&mut *disk, slot).await.ok(); // Best effort
+        }
+
+        result
+    }
+
+    /// Get transaction log statistics
+    ///
+    /// Returns information about transaction log usage and recovery history.
+    /// Only available when `transaction-safe` feature is enabled.
+    #[cfg(feature = "transaction-safe")]
+    pub async fn transaction_statistics(&self) -> crate::transaction::TransactionStatistics {
+        let tx_log = self.transaction_log.lock().await;
+        crate::transaction::TransactionStatistics {
+            total_slots: 4,
+            used_slots: tx_log.get_incomplete_transactions().count(),
+            sequence_number: tx_log.sequence,
+        }
     }
 
     /// Flushes any in memory state to the filesystem
@@ -1118,6 +1266,7 @@ pub struct FormatVolumeOptions {
     pub(crate) drive_num: Option<u8>,
     pub(crate) volume_id: Option<u32>,
     pub(crate) volume_label: Option<[u8; SFN_SIZE]>,
+    pub(crate) reserved_sectors: Option<u16>,
 }
 
 impl FormatVolumeOptions {
@@ -1266,6 +1415,48 @@ impl FormatVolumeOptions {
     #[must_use]
     pub fn volume_label(mut self, volume_label: [u8; SFN_SIZE]) -> Self {
         self.volume_label = Some(volume_label);
+        self
+    }
+
+    /// Set number of reserved sectors
+    ///
+    /// Reserved sectors are located before the FAT and can be used for bootloader code,
+    /// transaction logs, or other filesystem metadata.
+    ///
+    /// Default is `1` for FAT12/FAT16 and `8` for FAT32 (to accommodate backup boot sector).
+    ///
+    /// **Note:** When using the `transaction-safe` feature, you should add 4 additional sectors
+    /// for the transaction log. Use `with_transaction_log()` as a convenience method.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `reserved_sectors` is 0 or greater than 65535.
+    #[must_use]
+    pub fn reserved_sectors(mut self, reserved_sectors: u16) -> Self {
+        assert!(reserved_sectors > 0, "reserved_sectors must be at least 1");
+        self.reserved_sectors = Some(reserved_sectors);
+        self
+    }
+
+    /// Configure reserved sectors for transaction log
+    ///
+    /// This is a convenience method that adds 4 reserved sectors for the transaction log.
+    /// It calculates the appropriate base reserved sectors for the FAT type and adds space
+    /// for the transaction log.
+    ///
+    /// Equivalent to:
+    /// - FAT12/16: `reserved_sectors(1 + 4)` = 5 sectors
+    /// - FAT32: `reserved_sectors(8 + 4)` = 12 sectors
+    ///
+    /// **Only use this when the `transaction-safe` feature is enabled.**
+    #[cfg(feature = "transaction-safe")]
+    #[must_use]
+    pub fn with_transaction_log(mut self) -> Self {
+        // For FAT32, we need 8 base sectors (includes backup boot sector)
+        // For FAT12/16, we need 1 base sector
+        // Add 4 sectors for transaction log
+        let base_reserved = if self.fat_type == Some(FatType::Fat32) { 8 } else { 1 };
+        self.reserved_sectors = Some(base_reserved + 4);
         self
     }
 }

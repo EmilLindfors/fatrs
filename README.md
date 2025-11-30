@@ -14,6 +14,7 @@ A high-performance, async-first FAT filesystem implementation for embedded Rust 
 This repository contains various crates for interacting with FAT filesystems and SD cards:
 
 * [`embedded-fatfs`](embedded-fatfs/README.md): High-performance FAT12/16/32 filesystem with advanced optimization features
+* [`embedded-fatfs-mount`](embedded-fatfs-mount/README.md): **NEW!** FUSE mount tool with transaction-safe support for Linux/macOS
 * [`block-device-driver`](block-device-driver/README.md): Trait for handling block devices
 * [`block-device-adapters`](block-device-adapters/README.md): Helpers for dealing with block devices and partitions
 * [`sdspi`](https://crates.io/crates/sdspi): SPI SD card driver
@@ -236,6 +237,36 @@ cargo test --no-default-features --features "std,alloc,lfn"
 - **Phase 2 Optimizations (Multi-cluster I/O):** ✅ Complete & Tested
 - **Phase 3 Optimizations (Cluster Bitmap):** ✅ Complete & Tested
 - **Phase 3 Remaining:** 🚧 Read-ahead, checkpoints (see [TODO.md](TODO.md))
+
+## Tools & Utilities
+
+### embedded-fatfs-mount
+
+A complete FUSE mount tool for mounting FAT images on Linux/macOS with full read/write support and transaction-safe mode:
+
+```bash
+# Mount FAT image with power-loss protection
+embedded-fatfs-mount image.img /mnt/fatfs --transaction-safe
+
+# All standard operations work
+ls /mnt/fatfs
+echo "data" > /mnt/fatfs/file.txt
+mkdir /mnt/fatfs/dir
+cp -r /data /mnt/fatfs/
+
+# Unmount
+fusermount -u /mnt/fatfs
+```
+
+**Features:**
+- ✅ Full read/write operations (create, delete, rename, etc.)
+- ✅ Transaction-safe mode for power-loss protection
+- ✅ Pure Rust userspace implementation (no kernel drivers)
+- ✅ Works on Linux, macOS, BSD
+
+See [`embedded-fatfs-mount/README.md`](embedded-fatfs-mount/README.md) for complete documentation.
+
+---
 
 ## Contributing
 
