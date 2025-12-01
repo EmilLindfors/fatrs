@@ -1,6 +1,13 @@
 [workspace]
 
 resolver = "2"
-members = ["embedded-fatfs", "block-device-driver", "block-device-adapters", "sdspi", "embedded-fatfs-mount"]
+members = [
+    "fatrs",
+    "fatrs-block-device",
+    "fatrs-adapters-core",
+    "fatrs-adapters-alloc",
+    "fatrs-cli",
+    "fatrs-sdspi",
+]
 # exclude embedded examples because cargo doesn't do well with multi-arch workspaces
 exclude = ["examples/esp32c6", "examples/rp2040"]

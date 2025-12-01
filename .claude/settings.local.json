@@ -6,7 +6,8 @@
       "WebFetch(domain:elm-chan.org)",
       "Bash(cargo build:*)",
       "Bash(cargo test:*)",
-      "WebFetch(domain:docs.rs)"
+      "WebFetch(domain:docs.rs)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []

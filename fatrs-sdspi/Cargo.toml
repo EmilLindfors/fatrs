@@ -1,0 +1,31 @@
+[package]
+name = "fatrs-sdspi"
+version = "0.3.0"
+edition = "2024"
+repository = "https://github.com/EmilLindfors/fatrs"
+rust-version = "1.85"
+keywords = ["sd", "spi", "embedded", "no_std", "block-device"]
+categories = ["embedded", "no-std", "hardware-support"]
+license = "MIT OR Apache-2.0"
+description = """
+SD card SPI driver for the fatrs ecosystem. Provides BlockDevice implementation for SD cards.
+"""
+
+[dependencies]
+embedded-hal-async = "1"
+embedded-hal = "1"
+sdio-host = "0.9.0"
+fatrs-block-device = { version = "0.3.0", path = "../fatrs-block-device" }
+embassy-futures = "0.1.1"
+aligned = "0.4.2"
+crc = { version = "3.4", default-features = false }
+
+log = { version = "0.4", optional = true }
+defmt = { version = "1.0", optional = true }
+
+[features]
+default = []
+# enable log support
+log = ["dep:log"]
+# enable defmt support
+defmt = ["dep:defmt"]

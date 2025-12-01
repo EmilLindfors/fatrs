@@ -1,0 +1,64 @@
+[package]
+name = "fatrs-cli"
+version = "0.3.0"
+edition = "2024"
+authors = ["Emil Lindfors"]
+description = "CLI tools for fatrs - command-line utilities, TUI browser, and FUSE mount"
+license = "MIT"
+repository = "https://github.com/EmilLindfors/fatrs"
+keywords = ["fat", "filesystem", "cli", "fuse", "tui"]
+categories = ["filesystem", "command-line-utilities"]
+rust-version = "1.85"
+
+[dependencies]
+# Core fatrs ecosystem
+fatrs = { path = "../fatrs", features = ["transaction-safe", "std", "alloc", "lfn", "unicode", "log", "chrono"] }
+fatrs-adapters-core = { path = "../fatrs-adapters-core", features = ["std"] }
+fatrs-adapters-alloc = { path = "../fatrs-adapters-alloc" }
+fatrs-block-device = { path = "../fatrs-block-device" }
+
+# I/O adapters
+embedded-io-adapters = { version = "0.7", features = ["tokio-1"] }
+embedded-io-async = "0.7"
+aligned = "0.4.2"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI/TUI
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+chrono = "0.4"
+
+# TUI dependencies
+ratatui = "0.29"
+crossterm = "0.28"
+
+# FUSE support (Unix-like systems)
+[target.'cfg(unix)'.dependencies]
+fuser = { version = "0.14", optional = true }
+libc = { version = "0.2", optional = true }
+
+# Windows FUSE support (WinFsp) - optional, requires WinFsp installed
+[target.'cfg(windows)'.dependencies]
+winfsp = { version = "0.11", optional = true }
+
+[features]
+default = ["fuse"]
+fuse = ["dep:fuser", "dep:libc"]
+windows-fuse = ["winfsp"]
+
+[[bin]]
+name = "fatrs"
+path = "src/fatrs.rs"
+
+[[bin]]
+name = "fatrs-tui"
+path = "src/tui_main.rs"
+
+[[bin]]
+name = "fatrs-mount"
+path = "src/mount_main.rs"
+required-features = ["fuse"]
