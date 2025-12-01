@@ -450,7 +450,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
 
                     // Try to acquire shared lock
                     if let Some(cluster) = first_cluster {
-                        let mut locks = self.fs.file_locks.lock().await;
+                        let mut locks = self.fs.file_locks.acquire().await;
                         if locks.try_lock(cluster, LockType::Shared).is_err() {
                             return Err(Error::FileLocked);
                         }
@@ -527,7 +527,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
 
                 // Try to acquire exclusive lock (new file, should always succeed)
                 if let Some(cluster) = first_cluster {
-                    let mut locks = self.fs.file_locks.lock().await;
+                    let mut locks = self.fs.file_locks.acquire().await;
                     if locks.try_lock(cluster, LockType::Exclusive).is_err() {
                         return Err(Error::FileLocked);
                     }
@@ -541,7 +541,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
 
                 // Try to acquire exclusive lock
                 if let Some(cluster) = first_cluster {
-                    let mut locks = self.fs.file_locks.lock().await;
+                    let mut locks = self.fs.file_locks.acquire().await;
                     if locks.try_lock(cluster, LockType::Exclusive).is_err() {
                         return Err(Error::FileLocked);
                     }

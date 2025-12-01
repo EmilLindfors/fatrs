@@ -93,7 +93,7 @@ where
     // Perform the read
     let offset_in_fs = fs.offset_from_cluster(start_cluster) + u64::from(offset_in_cluster);
     let bytes_read = {
-        let mut disk = fs.disk.lock().await;
+        let mut disk = fs.disk.acquire().await;
         disk.seek(SeekFrom::Start(offset_in_fs)).await?;
         disk.read(&mut buf[..read_size]).await?
     };
@@ -135,7 +135,7 @@ where
     // Perform the write
     let offset_in_fs = fs.offset_from_cluster(start_cluster) + u64::from(offset_in_cluster);
     let written = {
-        let mut disk = fs.disk.lock().await;
+        let mut disk = fs.disk.acquire().await;
         disk.seek(SeekFrom::Start(offset_in_fs)).await?;
 
         let mut written = 0;

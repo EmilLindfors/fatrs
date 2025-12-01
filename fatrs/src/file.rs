@@ -358,7 +358,7 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     async fn flush(&mut self) -> Result<(), Error<IO::Error>> {
         self.flush_dir_entry().await?;
         {
-            let mut disk = self.fs.disk.lock().await;
+            let mut disk = self.fs.disk.acquire().await;
             disk.flush().await?;
         }
         Ok(())
@@ -425,7 +425,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
         // Release the lock if one was held
         if let (Some(lock_type), Some(first_cluster)) = (self.lock_info, self.context.first_cluster)
         {
-            let mut locks = self.fs.file_locks.lock().await;
+            let mut locks = self.fs.file_locks.acquire().await;
             locks.unlock(first_cluster, lock_type);
         }
 
@@ -611,7 +611,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
             self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         #[allow(clippy::await_holding_refcell_ref)]
         let read_bytes = {
-            let mut disk = self.fs.disk.lock().await;
+            let mut disk = self.fs.disk.acquire().await;
             disk.seek(SeekFrom::Start(offset_in_fs)).await?;
             disk.read(&mut buf[..read_size]).await?
         };
@@ -796,7 +796,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
             self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         #[allow(clippy::await_holding_refcell_ref)]
         let written_bytes = {
-            let mut disk = self.fs.disk.lock().await;
+            let mut disk = self.fs.disk.acquire().await;
             disk.seek(SeekFrom::Start(offset_in_fs)).await?;
             disk.write(&buf[..write_size]).await?
         };

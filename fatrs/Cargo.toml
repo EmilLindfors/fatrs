@@ -50,17 +50,22 @@ file-locking = ["alloc"]      # Concurrent access protection (prevents corruptio
 # Threading support
 send = []  # Add Send bounds to futures for multi-threaded executors (tokio::spawn)
 
+# Async runtime selection (for optimal synchronization primitives)
+runtime-generic = []  # Use async-lock (default, works everywhere - std and no_std)
+runtime-tokio = ["dep:tokio"]  # Use tokio::sync primitives (optimized for tokio runtime)
+# runtime-embassy = ["dep:embassy-sync"]  # Future: embassy-sync for embedded (not yet implemented)
+
 # Time provider options
 time-provider = ["dep:time"]  # Lightweight time provider using `time` crate
 chrono-compat = ["dep:chrono"]  # For users who need chrono interop (backwards compatibility)
 chrono = ["chrono-compat"]  # Backwards compatibility alias for chrono-compat
 
 # Bundle presets for common use cases
-embedded = ["lfn", "fat-cache", "multi-cluster-io"]  # Core no_std features
-desktop = ["std", "alloc", "lfn", "unicode", "log", "time-provider", "fat-cache", "multi-cluster-io", "cluster-bitmap-medium", "file-locking", "send"]
+embedded = ["alloc", "lfn", "fat-cache", "multi-cluster-io", "runtime-generic"]  # Core no_std features
+desktop = ["std", "alloc", "lfn", "unicode", "log", "time-provider", "fat-cache", "multi-cluster-io", "cluster-bitmap-medium", "file-locking", "send", "runtime-tokio"]
 
 # Default features - desktop-oriented with common optimizations
-default = ["std", "alloc", "lfn", "unicode", "log", "time-provider", "fat-cache", "multi-cluster-io"]
+default = ["std", "alloc", "lfn", "unicode", "log", "time-provider", "fat-cache", "multi-cluster-io", "runtime-generic"]
 
 [dependencies]
 # core deps
@@ -111,4 +116,12 @@ harness = false
 
 [[bench]]
 name = "page_buffer"
+harness = false
+
+[[bench]]
+name = "runtime_comparison"
+harness = false
+
+[[bench]]
+name = "alloc_only_runtime"
 harness = false

@@ -93,6 +93,9 @@ mod fmt;
 mod send_bounds;
 pub use send_bounds::{MaybeSend, MaybeSendSync, MaybeSync};
 
+pub mod share;
+pub use share::{Share, Shared};
+
 mod boot_sector;
 mod dir;
 mod dir_entry;

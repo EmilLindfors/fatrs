@@ -320,7 +320,7 @@ where
     S: Read + Write + Seek + IoBase,
 {
     inner: S,
-    cache: &'a async_lock::Mutex<FatCache>,
+    cache: &'a crate::share::Shared<FatCache>,
     current_offset: u64,
 }
 
@@ -329,7 +329,7 @@ impl<'a, S> CachedFatSlice<'a, S>
 where
     S: Read + Write + Seek + IoBase,
 {
-    pub fn new(inner: S, cache: &'a async_lock::Mutex<FatCache>) -> Self {
+    pub fn new(inner: S, cache: &'a crate::share::Shared<FatCache>) -> Self {
         Self {
             inner,
             cache,
@@ -355,7 +355,7 @@ where
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         // Read through cache - cache handles all error conversions
-        let mut cache = self.cache.lock().await;
+        let mut cache = self.cache.acquire().await;
         cache
             .read_cached(&mut self.inner, self.current_offset, buf)
             .await?;
@@ -372,7 +372,7 @@ where
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         // Write through cache
-        let mut cache = self.cache.lock().await;
+        let mut cache = self.cache.acquire().await;
         cache
             .write_cached(&mut self.inner, self.current_offset, buf)
             .await?;
@@ -381,7 +381,7 @@ where
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        let mut cache = self.cache.lock().await;
+        let mut cache = self.cache.acquire().await;
         cache.flush(&mut self.inner).await
     }
 }

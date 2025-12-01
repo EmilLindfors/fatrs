@@ -544,7 +544,7 @@ impl DirEntryEditor {
         fs: &FileSystem<IO, TP, OCC>,
     ) -> Result<(), IO::Error> {
         {
-            let mut disk = fs.disk.lock().await;
+            let mut disk = fs.disk.acquire().await;
             disk.seek(io::SeekFrom::Start(self.pos)).await?;
             self.data.serialize(&mut *disk).await?;
         }

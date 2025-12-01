@@ -105,25 +105,25 @@ fatrs/ (workspace root)
 ```rust
 // Core filesystem object - generic over storage
 pub struct FileSystem<IO, TP, OCC> {
-    disk: Mutex<IO>,                      // Storage device (async-locked)
+    disk: Shared<IO>,                     // Storage device (runtime-agnostic locking)
     bpb: BiosParameterBlock,              // Boot sector info
-    fs_info: Mutex<FsInfoSector>,         // FSInfo (FAT32)
+    fs_info: Shared<FsInfoSector>,        // FSInfo (FAT32)
 
     // Optimization layers (feature-gated, compile away when disabled)
     #[cfg(feature = "fat-cache")]
-    fat_cache: Mutex<FatCache>,           // Phase 1: FAT sector cache
+    fat_cache: Shared<FatCache>,          // Phase 1: FAT sector cache
 
     #[cfg(feature = "dir-cache")]
-    dir_cache: Mutex<DirCache>,           // Phase 2: Directory entry cache
+    dir_cache: Shared<DirCache>,          // Phase 2: Directory entry cache
 
     #[cfg(feature = "cluster-bitmap")]
-    cluster_bitmap: Mutex<ClusterBitmap>, // Phase 3: Free cluster bitmap
+    cluster_bitmap: Shared<ClusterBitmap>, // Phase 3: Free cluster bitmap
 
     #[cfg(feature = "transaction-safe")]
-    transaction_log: Mutex<TransactionLog>, // Phase 4: Power-loss resilience
+    transaction_log: Shared<TransactionLog>, // Phase 4: Power-loss resilience
 
     #[cfg(feature = "file-locking")]
-    file_locks: Mutex<FileLockManager>,   // Phase 5: File-level locking
+    file_locks: Shared<FileLockManager>,  // Phase 5: File-level locking
 }
 
 // File handle with optimized context
@@ -435,6 +435,133 @@ With multi-cluster-io:
 
 Flash wear reduction: 16x
 ```
+
+---
+
+## Shared Resource Abstraction (Zero-Overhead Design)
+
+### The Problem: Runtime-Agnostic Locking
+
+The filesystem core needs shared mutable state (FAT cache, directory cache, disk I/O) but must work across:
+- **Multi-threaded executors** (tokio, async-std) - need `Arc<Mutex<T>>` with `Send + Sync`
+- **Single-threaded executors** (embassy, RTIC) - can use `Rc<RefCell<T>>` for lower overhead
+- **Bare metal embedded** (no allocator) - want direct `T` ownership with zero overhead
+
+Traditional approach: Use `Arc<Mutex<T>>` everywhere and pay for atomics even when unnecessary.
+
+### The Solution: Compile-Time Abstraction
+
+The `Shared<T>` type uses conditional compilation to select the optimal internal representation:
+
+```rust
+pub struct Shared<T> {
+    #[cfg(any(feature = "runtime-tokio", feature = "runtime-generic"))]
+    inner: Arc<Mutex<T>>,  // Thread-safe, atomic refcount
+
+    #[cfg(all(feature = "alloc", not(any(...))))]
+    inner: Rc<RefCell<T>>,  // Single-threaded, no atomics
+
+    #[cfg(all(not(feature = "alloc"), not(any(...))))]
+    inner: T,  // Direct ownership - ZERO OVERHEAD!
+}
+```
+
+**Key insight**: Different code is compiled for each configuration. There's no runtime branching or trait objects - just direct field access to the appropriate type.
+
+### Performance Characteristics
+
+See `RUNTIME_BENCHMARKS.md` for detailed benchmarks. Summary:
+
+| Configuration | Internal Type | Overhead | Send + Sync | Lock Time |
+|---------------|---------------|----------|-------------|-----------|
+| `runtime-generic` | `Arc<async_lock::Mutex<T>>` | Atomic | ✅ Yes | 36 ns/op |
+| `runtime-tokio` | `Arc<tokio::sync::Mutex<T>>` | Atomic | ✅ Yes | 43 ns/op |
+| `alloc` only | `Rc<RefCell<T>>` | Refcount | ❌ No | ~8 ns/op |
+| No features | `T` (direct) | **ZERO** | Inherits | ~2 ns/op |
+
+**Trade-offs:**
+- `runtime-generic` (default): Best portability, works with any async executor
+- `runtime-tokio`: Optimized for tokio, but higher contention overhead (272 ns with 4 threads)
+- `alloc` only: Lowest overhead for embedded single-core systems
+- No features: True zero-cost for bare metal (just direct field access)
+
+### Usage in FileSystem
+
+All shared state in the `FileSystem` struct uses `Shared<T>`:
+
+```rust
+pub struct FileSystem<IO, TP, const SECSIZE: usize = 512> {
+    disk: Shared<IO>,                     // Disk I/O (runtime-agnostic)
+    fs_info: Shared<FsInfoSector>,        // Filesystem metadata
+    fat_cache: Shared<FatCache>,          // FAT sector cache
+    dir_cache: Shared<DirCache>,          // Directory cache
+    cluster_bitmap: Shared<ClusterBitmap>, // Free cluster tracking
+    transaction_log: Shared<TransactionLog>, // Power-loss protection
+    file_locks: Shared<FileLockManager>,  // Concurrent access control
+    // ...
+}
+```
+
+**API is uniform** across all configurations:
+
+```rust
+// Acquire lock (async API works everywhere)
+let mut guard = self.disk.acquire().await;
+guard.write_sector(sector, data).await?;
+
+// Try-acquire for non-blocking paths
+if let Some(mut guard) = self.fat_cache.try_acquire() {
+    guard.get_sector(sector);
+}
+```
+
+### Feature Flag Selection
+
+Choose the runtime that matches your execution environment:
+
+```toml
+# Cargo.toml
+
+# Option 1: Portable, works with tokio/smol/async-std/embassy
+fatrs = { version = "0.4", features = ["runtime-generic"] }
+
+# Option 2: Optimized for tokio (if your entire stack is tokio)
+fatrs = { version = "0.4", features = ["runtime-tokio"] }
+
+# Option 3: Single-threaded embedded (embassy, RTIC)
+fatrs = { version = "0.4", features = ["alloc"], default-features = false }
+
+# Option 4: Bare metal, no allocator
+fatrs = { version = "0.4", default-features = false }
+```
+
+### Send/Sync Derivation
+
+The `Shared<T>` automatically implements correct `Send` and `Sync` bounds:
+
+- `Arc<Mutex<T>>` → `Shared<T>` is `Send + Sync` (can be shared across threads)
+- `Rc<RefCell<T>>` → `Shared<T>` is `!Send + !Sync` (single-threaded only)
+- Direct `T` → `Shared<T>` inherits `T`'s Send/Sync properties
+
+**No manual marker traits needed!** The compiler automatically enforces thread-safety based on the internal representation.
+
+### Why This is Zero-Overhead
+
+1. **Conditional compilation**: Each configuration compiles to different code. No runtime checks.
+2. **Monomorphization**: Generic `acquire()` calls compile to direct method calls on the inner type.
+3. **Inlining**: Compiler sees through the wrapper and optimizes away indirection.
+4. **No trait objects**: Everything is statically known at compile time.
+
+For the `no-alloc` case, `Shared<T>` literally compiles to just `T`. It's as if you wrote:
+
+```rust
+pub struct FileSystem<IO> {
+    disk: IO,  // Direct ownership, no wrapper
+    // ...
+}
+```
+
+This is **idiomatic Rust**: pay only for what you use, decided at compile time.
 
 ---
 
