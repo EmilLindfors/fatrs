@@ -1,6 +1,6 @@
-# embedded-fatfs Architecture
+# fatrs Architecture
 
-This document describes the architecture, design decisions, and optimization techniques used in embedded-fatfs.
+This document describes the architecture, design decisions, and optimization techniques used in fatrs (formerly embedded-fatfs).
 
 ---
 
@@ -17,12 +17,14 @@ This document describes the architecture, design decisions, and optimization tec
 
 ## Overview
 
-embedded-fatfs is designed as a **high-performance, async-first FAT filesystem** for embedded Rust systems. The architecture prioritizes:
+fatrs is designed as a **high-performance, async-first FAT filesystem** for both embedded and desktop Rust systems. The architecture follows **hexagonal architecture** (ports and adapters pattern) and prioritizes:
 
+- **Clean separation of concerns**: Domain logic isolated from I/O implementation
 - **Zero-cost abstractions**: Optimizations are feature-gated and compile away when disabled
 - **Async-first design**: Native async/await, no blocking operations
 - **Configurability**: Trade RAM for performance based on your constraints
 - **no_std compatibility**: Works in bare-metal embedded environments
+- **Platform flexibility**: Same core works across Windows, Linux, macOS, and embedded systems
 
 ### Design Philosophy
 
@@ -32,49 +34,104 @@ embedded-fatfs is designed as a **high-performance, async-first FAT filesystem**
 - **Uncommon case**: Random access, deep directory nesting, heavily fragmented volumes
 - **Solution**: Layer caching and optimizations to accelerate common patterns while maintaining correctness
 
+### Hexagonal Architecture
+
+fatrs separates concerns into three layers:
+
+1. **Domain Core** (`fatrs`): Pure FAT filesystem logic with no I/O dependencies
+2. **Port** (`fatrs-block-device`): Abstract `BlockDevice<SIZE>` trait defining storage interface
+3. **Adapters**: Multiple implementations for different environments:
+   - `fatrs-adapters-core`: Stack-allocated adapters (no_std)
+   - `fatrs-adapters-alloc`: Heap-allocated adapters for high-performance
+   - `fatrs-block-platform`: Platform-specific implementations (Windows, Linux, macOS, SPI SD)
+
 ---
 
 ## Core Architecture
 
-### Module Structure
+### Crate Structure
 
 ```
-embedded-fatfs/
-├── src/
-│   ├── fs.rs              - FileSystem, mounting, core state
-│   ├── file.rs            - File operations (read, write, seek)
-│   ├── dir.rs             - Directory operations
-│   ├── table.rs           - FAT allocation table logic
-│   ├── boot_sector.rs     - BPB parsing and validation
-│   ├── dir_entry.rs       - Directory entry structures
-│   ├── io.rs              - Async I/O trait abstractions
-│   ├── time.rs            - Timestamp handling
+fatrs/ (workspace root)
+├── fatrs/                          # Domain Core
+│   ├── fs.rs                       - FileSystem, mounting, core state
+│   ├── file.rs                     - File operations (read, write, seek)
+│   ├── dir.rs                      - Directory operations
+│   ├── table.rs                    - FAT allocation table logic
+│   ├── boot_sector.rs              - BPB parsing and validation
+│   ├── dir_entry.rs                - Directory entry structures
+│   ├── time.rs                     - Timestamp handling
+│   ├── error.rs                    - Error types
 │   │
-│   ├── fat_cache.rs       - Phase 1: FAT sector cache
-│   ├── multi_cluster_io.rs- Phase 2: Batched multi-cluster I/O
-│   ├── dir_cache.rs       - Phase 2: Directory entry cache
-│   └── cluster_bitmap.rs  - Phase 3: Free cluster bitmap
+│   ├── fat_cache.rs                - Phase 1: FAT sector cache
+│   ├── multi_cluster_io.rs         - Phase 2: Batched multi-cluster I/O
+│   ├── dir_cache.rs                - Phase 2: Directory entry cache
+│   ├── cluster_bitmap.rs           - Phase 3: Free cluster bitmap
+│   ├── transaction.rs              - Phase 4: Transaction-safe writes
+│   ├── file_locking.rs             - Phase 5: File-level locking
+│   └── send_bounds.rs              - Send/Sync support
+│
+├── fatrs-block-device/             # Port (trait definition)
+│   └── lib.rs                      - BlockDevice<SIZE> trait
+│
+├── fatrs-adapters-core/            # Adapters (no_std)
+│   ├── buf_stream.rs               - Buffered streaming I/O
+│   ├── page_buffer.rs              - Page-aligned buffering
+│   ├── page_stream.rs              - Streaming page buffer
+│   └── stream_slice.rs             - Sliced stream access
+│
+├── fatrs-adapters-alloc/           # Adapters (heap)
+│   ├── large_page_buffer.rs        - Large (128KB+) page buffers
+│   └── large_page_stream.rs        - Streaming large pages
+│
+├── fatrs-block-platform/           # Adapters (platform-specific)
+│   ├── windows.rs                  - Windows disk/partition access
+│   ├── linux.rs                    - Linux block device access
+│   ├── macos.rs                    - macOS disk access
+│   └── sdspi.rs                    - SPI SD card driver (embedded)
+│
+├── fatrs-cli/                      # Application Layer
+│   ├── fatrs.rs                    - CLI utility
+│   └── tui_main.rs                 - TUI file browser
+│
+└── fatrs-fuse/                     # Application Layer
+    └── lib.rs                      - FUSE filesystem implementation
 ```
 
 ### Key Types
 
-```rust
-// Core filesystem object
-pub struct FileSystem<IO, TP, OCC> {
-    disk: RefCell<IO>,                    // Storage device
-    bpb: BiosParameterBlock,              // Boot sector info
-    fs_info: RefCell<FsInfoSector>,       // FSInfo (FAT32)
+#### Domain Core (`fatrs`)
 
-    // Optimization layers (feature-gated)
-    fat_cache: RefCell<FatCache>,         // Phase 1
-    dir_cache: RefCell<DirCache>,         // Phase 2
-    cluster_bitmap: RefCell<ClusterBitmap>, // Phase 3
+```rust
+// Core filesystem object - generic over storage
+pub struct FileSystem<IO, TP, OCC> {
+    disk: Mutex<IO>,                      // Storage device (async-locked)
+    bpb: BiosParameterBlock,              // Boot sector info
+    fs_info: Mutex<FsInfoSector>,         // FSInfo (FAT32)
+
+    // Optimization layers (feature-gated, compile away when disabled)
+    #[cfg(feature = "fat-cache")]
+    fat_cache: Mutex<FatCache>,           // Phase 1: FAT sector cache
+
+    #[cfg(feature = "dir-cache")]
+    dir_cache: Mutex<DirCache>,           // Phase 2: Directory entry cache
+
+    #[cfg(feature = "cluster-bitmap")]
+    cluster_bitmap: Mutex<ClusterBitmap>, // Phase 3: Free cluster bitmap
+
+    #[cfg(feature = "transaction-safe")]
+    transaction_log: Mutex<TransactionLog>, // Phase 4: Power-loss resilience
+
+    #[cfg(feature = "file-locking")]
+    file_locks: Mutex<FileLockManager>,   // Phase 5: File-level locking
 }
 
 // File handle with optimized context
 pub struct File<'a, IO, TP, OCC> {
     fs: &'a FileSystem<IO, TP, OCC>,
     context: FileContext,
+    #[cfg(feature = "file-locking")]
+    lock_type: Option<LockType>,          // Held lock (Shared/Exclusive)
 }
 
 // Enhanced file context
@@ -85,10 +142,113 @@ pub struct FileContext {
     entry: Option<DirEntryEditor>,
 
     // Phase 2: Optimization fields
-    is_contiguous: bool,                   // Skip FAT traversal
-    checkpoints: [(u32, u32); 8],          // O(log n) seeking
+    is_contiguous: bool,                   // Skip FAT traversal for unfragmented files
+    #[cfg(feature = "cluster-checkpoints")]
+    checkpoints: [(u32, u32); 8],          // O(log n) seeking on large files
 }
 ```
+
+#### Port (`fatrs-block-device`)
+
+```rust
+// Abstract block device trait - the port in hexagonal architecture
+pub trait BlockDevice<const SIZE: usize> {
+    type Error;
+
+    async fn read(&mut self, blocks: &mut [Aligned<A512, [u8; SIZE]>], address: u32)
+        -> Result<(), Self::Error>;
+
+    async fn write(&mut self, blocks: &[Aligned<A512, [u8; SIZE]>], address: u32)
+        -> Result<(), Self::Error>;
+}
+
+// Send-capable variant for multi-threaded executors
+pub trait BlockDeviceSend<const SIZE: usize>: BlockDevice<SIZE> + Send {
+    // Same methods with Send bound
+}
+```
+
+#### Adapters (`fatrs-adapters-*`)
+
+```rust
+// Stack-allocated buffered stream (no_std)
+pub struct BufStream<IO, const SIZE: usize> {
+    inner: IO,
+    buffer: Aligned<A512, [u8; SIZE]>,
+    buffer_address: u32,
+    dirty: bool,
+}
+
+// Large heap-allocated page buffer (desktop)
+pub struct LargePageBuffer<IO, const SIZE: usize = 131072> {  // 128KB default
+    inner: IO,
+    buffer: Box<Aligned<A512, [u8; SIZE]>>,
+    // ... similar structure
+}
+```
+
+---
+
+## Hexagonal Architecture Benefits
+
+### Dependency Inversion
+
+The domain core (`fatrs`) depends only on the `BlockDevice` trait, not concrete implementations. This enables:
+
+```rust
+// Embedded: Stack-allocated 4KB buffer
+let storage = BufStream::<_, 4096>::new(spi_sd_card);
+let fs = FileSystem::new(storage, FsOptions::new()).await?;
+
+// Desktop: Heap-allocated 128KB buffer
+let storage = LargePageBuffer::<_, 131072>::new(disk_file);
+let fs = FileSystem::new(storage, FsOptions::new()).await?;
+
+// Same filesystem code, different adapters!
+```
+
+### Testability
+
+Domain logic can be tested without real I/O:
+
+```rust
+// Mock storage for testing
+struct RamDisk { data: Vec<u8> }
+impl BlockDevice<512> for RamDisk { /* ... */ }
+
+// Test filesystem operations in-memory
+let disk = RamDisk::new(16 * 1024 * 1024);  // 16MB
+let fs = FileSystem::new(disk, FsOptions::new()).await?;
+// Test without touching real hardware
+```
+
+### Platform Portability
+
+```rust
+#[cfg(target_os = "windows")]
+use fatrs_block_platform::WindowsDisk;
+
+#[cfg(target_os = "linux")]
+use fatrs_block_platform::LinuxBlockDevice;
+
+#[cfg(target_os = "macos")]
+use fatrs_block_platform::MacDisk;
+
+#[cfg(all(not(feature = "std"), target_arch = "arm"))]
+use fatrs_block_platform::SdSpiDevice;
+
+// Adapter selection at compile time, same filesystem core
+```
+
+### Performance Optimization at the Edges
+
+Adapters can implement platform-specific optimizations:
+- **Windows**: Direct disk access via `CreateFile` with `FILE_FLAG_NO_BUFFERING`
+- **Linux**: `O_DIRECT` for DMA transfers
+- **SPI SD**: Hardware CRC, multi-block read/write
+- **Desktop**: Large (128KB+) page buffers to minimize system calls
+
+The core filesystem remains simple and portable while adapters handle platform quirks.
 
 ---
 

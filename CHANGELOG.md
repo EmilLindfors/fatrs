@@ -1,11 +1,78 @@
 # Changelog
 
-All notable changes to embedded-fatfs will be documented in this file.
+All notable changes to fatrs (formerly embedded-fatfs) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added - Hexagonal Architecture (2025-01-XX)
+
+**Major architectural refactoring** - The project has been restructured into a hexagonal architecture (ports and adapters pattern) with clean separation of concerns:
+
+#### New Crates
+- **`fatrs-block-device`**: Core `BlockDevice<SIZE>` trait abstraction (port layer)
+- **`fatrs-adapters-core`**: Stack-allocated adapters for no_std environments
+  - `BufStream<IO, SIZE>`: Buffered streaming I/O
+  - `PageBuffer<IO, SIZE>`: Page-aligned buffering
+  - `PageStream<IO, SIZE>`: Streaming page buffer
+  - `StreamSlice<IO>`: Sliced stream access
+- **`fatrs-adapters-alloc`**: Heap-allocated adapters for high-performance scenarios
+  - `LargePageBuffer<IO, SIZE = 131072>`: Large (128KB+) page buffers for SSDs
+  - `LargePageStream<IO, SIZE = 131072>`: Streaming large pages
+- **`fatrs-block-platform`**: Platform-specific `BlockDevice` implementations
+  - Windows: Direct disk/partition access via `CreateFile` with `FILE_FLAG_NO_BUFFERING`
+  - Linux: Block device access via `O_DIRECT`
+  - macOS: Disk access via `/dev/diskX`
+  - Embedded: SPI SD card driver using `embedded-hal-async`
+- **`fatrs-fuse`**: FUSE filesystem mount support
+  - Unix: `fuser` for Linux/macOS
+  - Windows: WinFsp support (optional)
+  - `fatrs-mount` binary for mounting FAT images
+
+#### Benefits
+- **Testability**: Domain logic completely isolated from I/O
+- **Portability**: Same core runs on embedded, Windows, Linux, macOS
+- **Flexibility**: Swap storage backends without changing filesystem code
+- **Performance**: Platform-specific optimizations in adapters
+
+### Added - Safety Features (2025-01-XX)
+- **Transaction-safe mode** (`transaction-safe` feature): Power-loss resilience with two-phase commit
+  - Intent logging for metadata changes
+  - Recovery on mount after unexpected shutdown
+  - CRC validation for transaction log integrity
+  - New module: `transaction.rs` (~600 lines)
+- **File locking** (`file-locking` feature): Concurrent access protection
+  - Shared locks for multiple concurrent readers
+  - Exclusive locks for single writers
+  - `Error::FileLocked` variant when lock unavailable
+  - New module: `file_locking.rs` (~400 lines)
+- **Send bounds** (`send` feature): Multi-threaded executor support
+  - Enables `tokio::spawn` and other work-stealing executors
+  - `BlockDeviceSend` trait variant
+  - New module: `send_bounds.rs`
+- **Dirty file panic** (`dirty-file-panic` feature): Debug mode to catch unflushed files
+
+### Changed - Architecture
+- **Renamed project**: `embedded-fatfs` → `fatrs` to reflect broader scope (embedded + desktop)
+- **Crate split**: Monolithic `embedded-fatfs` split into 7 crates following hexagonal architecture
+- **Dependency inversion**: Core `fatrs` crate depends only on `BlockDevice` trait, not concrete implementations
+- **Removed `fatrs-sdspi`**: Functionality moved to `fatrs-block-platform` with unified interface
+
+### Changed - API
+- **Storage trait**: Replaced `Read + Write + Seek` with `BlockDevice<SIZE>` trait
+  - Simpler interface: `read(blocks, address)` and `write(blocks, address)`
+  - DMA-aligned buffers via `Aligned<A512, [u8; SIZE]>`
+  - Const generic `SIZE` for flexible block sizes (512, 1024, 2048, 4096)
+- **Time provider**: Added `time` crate support alongside existing `chrono` support
+  - New feature: `time-provider` (lightweight, default)
+  - Existing: `chrono-compat` (backwards compatibility)
+- **Feature presets**:
+  - `desktop`: Full-featured preset for desktop applications
+  - `embedded`: Optimized preset for no_std environments
+
+## [0.3.0] - Previous Release
 
 ### Added - Phase 3 Optimizations (2025-11-30)
 - **Free Cluster Bitmap**: O(1) cluster allocation instead of O(n) FAT scanning

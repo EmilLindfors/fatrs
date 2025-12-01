@@ -1,6 +1,6 @@
-# embedded-fatfs TODO & Roadmap
+# fatrs TODO & Roadmap
 
-This document tracks planned features, optimizations, and improvements for embedded-fatfs.
+This document tracks planned features, optimizations, and improvements for fatrs (formerly embedded-fatfs).
 
 ---
 
@@ -19,22 +19,34 @@ This document tracks planned features, optimizations, and improvements for embed
 - [x] Random access benchmark
 - [x] Comprehensive testing
 
-### Phase 3: Advanced Optimizations (Partial)
+### Phase 3: Advanced Optimizations
 - [x] Free Cluster Bitmap
 - [x] Cluster allocation benchmark
-- [x] Configurable bitmap sizes
+- [x] Configurable bitmap sizes (small/medium/large)
+
+### Phase 4: Hardening & Safety
+- [x] File Locking (shared/exclusive locks)
+- [x] Transaction-safe writes (power-loss resilience)
+- [x] Send/Sync support for multi-threaded executors
+
+### Phase 5: Hexagonal Architecture
+- [x] Split into separate crates (domain, ports, adapters)
+- [x] BlockDevice trait abstraction
+- [x] Stack-allocated adapters (fatrs-adapters-core)
+- [x] Heap-allocated adapters (fatrs-adapters-alloc)
+- [x] Platform-specific implementations (fatrs-block-platform)
+- [x] FUSE filesystem support (fatrs-fuse)
 
 ---
 
 ## 🚧 In Progress
 
-### Phase 3: Advanced Optimizations (Remaining)
-
-#### Cluster Chain Checkpoints
-**Priority:** High
+### Cluster Chain Checkpoints
+**Priority:** Medium
 **Complexity:** Medium
 **Expected Gain:** 100x faster seeking on large files
 **Memory Cost:** ~64 bytes per file
+**Status:** Feature flag exists, needs implementation
 
 **Description:**
 - Store periodic checkpoints (every Nth cluster) in FileContext
@@ -48,8 +60,8 @@ This document tracks planned features, optimizations, and improvements for embed
 - [ ] Benchmark large file seek performance
 - [ ] Test with files >100MB
 
-#### Read-Ahead Prefetching
-**Priority:** Medium-High
+### Read-Ahead Prefetching
+**Priority:** Low-Medium
 **Complexity:** Medium
 **Expected Gain:** 20-40% sequential read throughput
 **Memory Cost:** 1-4 cluster buffers (~4KB-16KB)
@@ -66,60 +78,22 @@ This document tracks planned features, optimizations, and improvements for embed
 - [ ] Invalidate on seek/write
 - [ ] Benchmark throughput improvement
 
-#### Directory Cache Integration
-**Priority:** Medium
-**Complexity:** Low
-**Expected Gain:** 3-5x faster directory operations
-
-**Status:** Module complete, needs integration
-
-**Implementation:**
-- [ ] Integrate into `Dir::find_entry()`
-- [ ] Cache entries after successful lookups
-- [ ] Invalidate cache on create/delete
-- [ ] Add `FileSystem::dir_cache_statistics()` API
-- [ ] Test nested directory access performance
-
 ---
 
 ## 📋 Planned Features
 
-### Phase 4: Hardening & Safety (3-4 weeks)
-
-#### File Locking
-**Priority:** Medium
-**Complexity:** Low-Medium
-**Use Case:** Multi-threaded applications, prevent corruption
-
-- [ ] Add file locks: cluster → lock state mapping
-- [ ] Implement shared (read) and exclusive (write) locks
-- [ ] Return `Error::FileLocked` when unavailable
-- [ ] Feature flag: `file-locking`
-- [ ] Tests: Concurrent access scenarios
-
-#### Power-Loss Resilience
-**Priority:** High (for safety-critical systems)
-**Complexity:** High
-**Use Case:** Medical, automotive, aerospace
-
-- [ ] Design two-phase commit for metadata
-- [ ] Implement intent logging
-- [ ] Add recovery on mount
-- [ ] Feature flag: `transaction-safe`
-- [ ] Tests: Power-loss injection (1000+ iterations)
-
-#### TRIM Support
+### TRIM Support
 **Priority:** Medium
 **Complexity:** Low
 **Use Case:** Flash storage longevity
 
-- [ ] Extend trait with `trim()` method
+- [ ] Extend BlockDevice trait with `trim()` method
 - [ ] Notify storage of freed clusters
 - [ ] Call on cluster chain free
 - [ ] Feature flag: `trim-support`
 - [ ] Tests: Verify TRIM commands sent
 
-#### Tiny Mode (FF_FS_TINY)
+### Tiny Mode (FF_FS_TINY)
 **Priority:** Low-Medium
 **Complexity:** Medium
 **Use Case:** Ultra-low-memory microcontrollers
@@ -132,37 +106,9 @@ This document tracks planned features, optimizations, and improvements for embed
 
 ---
 
-### Phase 5: Concurrent Multicore Access (4-6 weeks)
+### Performance Improvements
 
-**Goal:** Enable safe concurrent access from multiple cores/tasks while maintaining no_std compatibility
-
-#### Thread-Safe Status Flags ⭐ CRITICAL ✅ DONE
-**Priority:** Highest
-**Complexity:** Low
-**Impact:** Enables `FileSystem: Sync` for all multicore usage
-
-- [x] Replace `Cell<FsStatusFlags>` with `AtomicU8` in `fs.rs:338`
-- [x] Update initialization in `fs.rs:440`
-- [x] Update all status flag reads to use `Ordering::Acquire`
-- [x] Update all status flag writes to use `Ordering::Release`
-- [x] Add static assertion tests for `Send + Sync` bounds
-
-#### File-Level Locking ⭐⭐ HIGH ✅ DONE
-**Priority:** High
-**Complexity:** Medium
-**Use Case:** Prevent corruption from concurrent file access
-
-- [x] Create `file_locking.rs` module
-- [x] Implement `FileLockManager` with `BTreeMap<u32, FileLockState>`
-- [x] Add `LockType::Shared` (multiple readers) and `LockType::Exclusive` (single writer)
-- [x] Add `file_locks: Mutex<FileLockManager>` field to `FileSystem`
-- [x] Add `Dir::open_file_locked()` and `Dir::create_file_locked()` methods
-- [x] Add `File::close_and_unlock()` async method for lock release
-- [x] Add `Error::FileLocked` variant to `error.rs`
-- [x] Feature flag: `file-locking` (already declared)
-- [x] Tests: 8 unit tests for locking behavior
-
-#### RwLock for Read-Heavy Caches ⭐⭐ MEDIUM
+#### RwLock for Read-Heavy Caches
 **Priority:** Medium
 **Complexity:** Low
 **Impact:** 2-4x better read concurrency on multicore
@@ -174,36 +120,27 @@ This document tracks planned features, optimizations, and improvements for embed
 - [ ] Update `table.rs` FAT access patterns
 - [ ] Benchmark read concurrency improvement
 
-#### Explicit Send + Sync Bounds ⭐⭐ MEDIUM
-**Priority:** Medium
-**Complexity:** Low
-**Impact:** API clarity and compile-time guarantees
+### Documentation & Examples
 
-- [ ] Add `Send` bound to `IO` in relevant impl blocks
-- [ ] Add static assertion tests in `fs.rs` for `Send + Sync`
-- [ ] Document thread safety guarantees in `FileSystem` docstring
-- [ ] Add examples for `Arc<FileSystem>` usage pattern
-
-#### Async Runtime Documentation ⭐ MEDIUM
+#### Async Runtime Examples
 **Priority:** Medium
 **Complexity:** Documentation only
-**Impact:** Correct usage guidance for different runtimes
 
 - [ ] Add Embassy multicore example (RP2350, ESP32-S3)
 - [ ] Add Tokio multi-threaded example with `Arc`
 - [ ] Add async-std example
 - [ ] Document `StaticCell` pattern for no_std multicore
-- [ ] Document potential deadlock scenarios and avoidance
+- [ ] Document BlockDevice implementations for different platforms
 
-#### no_std Heapless Option ⭐ LOW
+#### Platform-Specific Guides
 **Priority:** Low
-**Complexity:** Medium
-**Use Case:** Concurrent access without alloc
+**Complexity:** Documentation only
 
-- [ ] Add `heapless` optional dependency
-- [ ] Implement `FileLockManager` using `heapless::FnvIndexMap`
-- [ ] Add `file-locking-heapless` feature flag
-- [ ] Document trade-offs (fixed max concurrent files)
+- [ ] Windows disk access guide
+- [ ] Linux block device guide
+- [ ] macOS disk access guide
+- [ ] Embedded SPI SD card guide
+- [ ] Performance tuning guide for each platform
 
 ---
 

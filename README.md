@@ -11,14 +11,17 @@ A high-performance, async-first FAT filesystem implementation for Rust, designed
 
 ## Crate Ecosystem
 
-| Crate | Description | Features |
-|-------|-------------|----------|
-| [`fatrs`](fatrs/) | Core FAT12/16/32 filesystem | Async-first, `no_std` compatible |
-| [`fatrs-block-device`](fatrs-block-device/) | `BlockDevice<SIZE>` trait | DMA alignment, Send variant |
-| [`fatrs-adapters-core`](fatrs-adapters-core/) | Stack-allocated adapters | `no_std`, BufStream, PageBuffer |
-| [`fatrs-adapters-alloc`](fatrs-adapters-alloc/) | Heap-allocated adapters | Large page buffers (128KB+) for SSDs |
-| [`fatrs-cli`](fatrs-cli/) | CLI tools | `fatrs`, `fatrs-tui`, `fatrs-mount` |
-| [`fatrs-sdspi`](fatrs-sdspi/) | SD card SPI driver | `no_std`, embedded-hal-async |
+fatrs uses a **hexagonal architecture** with clean separation between domain logic, ports, and adapters:
+
+| Crate | Layer | Description | Features |
+|-------|-------|-------------|----------|
+| [`fatrs`](fatrs/) | **Domain** | Core FAT12/16/32 filesystem | Async-first, `no_std` compatible, performance optimizations |
+| [`fatrs-block-device`](fatrs-block-device/) | **Port** | `BlockDevice<SIZE>` trait | DMA alignment, Send variant, storage abstraction |
+| [`fatrs-adapters-core`](fatrs-adapters-core/) | **Adapter** | Stack-allocated adapters | `no_std`, BufStream, PageBuffer, PageStream |
+| [`fatrs-adapters-alloc`](fatrs-adapters-alloc/) | **Adapter** | Heap-allocated adapters | Large page buffers (128KB+) for SSDs |
+| [`fatrs-block-platform`](fatrs-block-platform/) | **Adapter** | Platform-specific implementations | Windows, Linux, macOS, SPI SD cards |
+| [`fatrs-cli`](fatrs-cli/) | **Application** | CLI tools | `fatrs`, `fatrs-tui` file browser |
+| [`fatrs-fuse`](fatrs-fuse/) | **Application** | FUSE filesystem mount | `fatrs-mount` for Linux/macOS/Windows |
 
 ## Key Features
 
@@ -36,8 +39,10 @@ A high-performance, async-first FAT filesystem implementation for Rust, designed
 - **Directory Entry Cache**: 3-5x faster nested directory access
 
 ### Safety Features
-- **Transaction-safe mode**: Power-loss resilience with two-phase commit
-- **File locking**: Concurrent access protection
+- **Transaction-safe mode**: Power-loss resilience with two-phase commit (feature: `transaction-safe`)
+- **File locking**: Concurrent access protection with shared/exclusive locks (feature: `file-locking`)
+- **Send bounds**: Multi-threaded executor support (feature: `send`)
+- **Dirty file panic**: Debug mode to catch unflushed files (feature: `dirty-file-panic`)
 
 ## Quick Start
 
@@ -97,7 +102,9 @@ async fn main(_spawner: Spawner) {
 [dependencies]
 fatrs = { version = "0.3", features = ["desktop"] }
 ```
-Includes: `std`, `alloc`, `lfn`, `unicode`, `log`, `fat-cache`, `multi-cluster-io`, `cluster-bitmap-medium`, `file-locking`
+Includes: `std`, `alloc`, `lfn`, `unicode`, `log`, `time-provider`, `fat-cache`, `multi-cluster-io`, `cluster-bitmap-medium`, `file-locking`, `send`
+
+**Use case**: Desktop applications, servers, high-performance scenarios with ample RAM
 
 ### Embedded (no_std optimized)
 ```toml
@@ -106,17 +113,27 @@ fatrs = { version = "0.3", default-features = false, features = ["embedded"] }
 ```
 Includes: `lfn`, `fat-cache`, `multi-cluster-io`
 
+**Use case**: ESP32, STM32, RP2040 microcontrollers with 64KB+ RAM
+
 ### Minimal (ultra-constrained)
 ```toml
 [dependencies]
 fatrs = { version = "0.3", default-features = false, features = ["lfn"] }
 ```
 
+**Use case**: Resource-constrained microcontrollers with <16KB RAM
+
+### Safety-Critical
+```toml
+[dependencies]
+fatrs = { version = "0.3", features = ["std", "transaction-safe", "file-locking", "dirty-file-panic"] }
+```
+
+**Use case**: Medical, automotive, aerospace applications requiring power-loss resilience
+
 ## CLI Tools
 
-The `fatrs-cli` crate provides three binaries:
-
-### fatrs - Command-line utility
+### fatrs - Command-line utility (`fatrs-cli` crate)
 ```bash
 # List files
 fatrs ls image.img
@@ -131,17 +148,19 @@ fatrs create -s 128M -t 32 new_image.img
 fatrs info image.img
 ```
 
-### fatrs-tui - Terminal file browser
+### fatrs-tui - Terminal file browser (`fatrs-cli` crate)
+Interactive TUI for browsing FAT images with vim-like keybindings
 ```bash
 fatrs-tui image.img
 ```
 
-### fatrs-mount - FUSE mount
+### fatrs-mount - FUSE filesystem (`fatrs-fuse` crate)
+Mount FAT images as native filesystems on Linux, macOS, and Windows (via WinFsp)
 ```bash
 # Mount with transaction safety
 fatrs-mount image.img /mnt/fatfs --transaction-safe
 
-# Unmount
+# Unmount (Linux/macOS)
 fusermount -u /mnt/fatfs
 ```
 
@@ -161,9 +180,47 @@ fusermount -u /mnt/fatfs
 - **Architecture:** All platforms (x86, ARM, RISC-V)
 - **OS:** std and no_std
 
+## Architecture
+
+fatrs follows **hexagonal architecture** (ports and adapters pattern) for maximum flexibility:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Applications                         │
+│  (fatrs-cli, fatrs-fuse, embedded apps)                │
+└────────────────────┬───────────────────────────────────┘
+                     │
+┌────────────────────▼───────────────────────────────────┐
+│                  Domain Core                            │
+│                   (fatrs)                               │
+│  • FAT12/16/32 logic     • Performance optimizations   │
+│  • File operations       • Transaction safety          │
+│  • Directory operations  • File locking                │
+└────────────────────┬───────────────────────────────────┘
+                     │ BlockDevice<SIZE> port
+┌────────────────────▼───────────────────────────────────┐
+│                   Adapters                              │
+│  ┌──────────────────┬──────────────────┬──────────────┐│
+│  │ fatrs-adapters-  │ fatrs-adapters-  │ fatrs-block- ││
+│  │ core (no_std)    │ alloc            │ platform     ││
+│  │ • BufStream      │ • LargePageBuf   │ • Windows    ││
+│  │ • PageBuffer     │ • SSD optimized  │ • Linux      ││
+│  │ • PageStream     │                  │ • macOS      ││
+│  │                  │                  │ • SPI SD     ││
+│  └──────────────────┴──────────────────┴──────────────┘│
+└─────────────────────────────────────────────────────────┘
+```
+
+**Benefits**:
+- **Testability**: Domain logic isolated from I/O
+- **Portability**: Same core runs on embedded and desktop
+- **Flexibility**: Swap storage backends without changing filesystem code
+- **Performance**: Platform-specific optimizations in adapters
+
 ## Documentation
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Design and performance analysis
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed architecture and optimization techniques
+- **[TODO.md](TODO.md)** - Roadmap and planned features
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
 - **[API Documentation](https://docs.rs/fatrs)** - Full API reference
 
