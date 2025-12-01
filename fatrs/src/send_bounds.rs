@@ -21,7 +21,7 @@
 //! }
 //! ```
 //!
-//! ## LocalSet with multi-threaded runtime
+//! ## `LocalSet` with multi-threaded runtime
 //! ```ignore
 //! use tokio::task::{LocalSet, spawn_local};
 //!

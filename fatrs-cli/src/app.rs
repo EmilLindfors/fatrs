@@ -164,12 +164,10 @@ where
         match entries_result {
             Ok(mut entries) => {
                 // Sort: directories first, then by name
-                entries.sort_by(|a, b| {
-                    match (a.is_dir, b.is_dir) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-                    }
+                entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
                 });
                 self.entries = entries;
 
@@ -295,7 +293,11 @@ where
                     self.file_content = Some(String::from_utf8_lossy(&bytes).to_string());
                     self.viewing_file = Some(entry.name);
                     self.scroll_offset = 0;
-                    self.total_lines = self.file_content.as_ref().map(|c| c.lines().count()).unwrap_or(0);
+                    self.total_lines = self
+                        .file_content
+                        .as_ref()
+                        .map(|c| c.lines().count())
+                        .unwrap_or(0);
                     self.view = View::FileContent;
                 }
                 Err(e) => {
@@ -339,9 +341,7 @@ where
     /// Scroll down in content view
     pub fn scroll_down(&mut self, amount: usize) {
         let max_scroll = match self.view {
-            View::HexView => {
-                self.file_bytes.as_ref().map(|b| b.len() / 16).unwrap_or(0)
-            }
+            View::HexView => self.file_bytes.as_ref().map(|b| b.len() / 16).unwrap_or(0),
             _ => self.total_lines,
         };
         self.scroll_offset = (self.scroll_offset + amount).min(max_scroll.saturating_sub(1));
@@ -355,9 +355,7 @@ where
     /// Scroll to bottom
     pub fn scroll_to_bottom(&mut self) {
         let max_scroll = match self.view {
-            View::HexView => {
-                self.file_bytes.as_ref().map(|b| b.len() / 16).unwrap_or(0)
-            }
+            View::HexView => self.file_bytes.as_ref().map(|b| b.len() / 16).unwrap_or(0),
             _ => self.total_lines,
         };
         self.scroll_offset = max_scroll.saturating_sub(1);
@@ -440,7 +438,10 @@ where
         let name_owned = name.to_string();
         let result: Result<(), String> = self.runtime.block_on(async {
             let root = self.fs.root_dir();
-            root.create_file(&path).await.map(|_| ()).map_err(|e| format!("{:?}", e))
+            root.create_file(&path)
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("{:?}", e))
         });
 
         match result {
@@ -467,7 +468,10 @@ where
         let name_owned = name.to_string();
         let result: Result<(), String> = self.runtime.block_on(async {
             let root = self.fs.root_dir();
-            root.create_dir(&path).await.map(|_| ()).map_err(|e| format!("{:?}", e))
+            root.create_dir(&path)
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("{:?}", e))
         });
 
         match result {
@@ -539,12 +543,15 @@ where
             let new_name_owned = new_name.to_string();
             let result: Result<(), String> = self.runtime.block_on(async {
                 let root = self.fs.root_dir();
-                root.rename(&old_path, &root, &new_path).await.map_err(|e| format!("{:?}", e))
+                root.rename(&old_path, &root, &new_path)
+                    .await
+                    .map_err(|e| format!("{:?}", e))
             });
 
             match result {
                 Ok(_) => {
-                    self.message = Some(format!("Renamed '{}' to '{}'", entry_name, new_name_owned));
+                    self.message =
+                        Some(format!("Renamed '{}' to '{}'", entry_name, new_name_owned));
                 }
                 Err(e) => {
                     self.message = Some(format!("Error renaming: {}", e));

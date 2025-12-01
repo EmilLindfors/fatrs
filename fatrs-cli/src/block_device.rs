@@ -3,8 +3,8 @@
 //! Provides a `BlockDevice<512>` implementation wrapping tokio async files.
 
 use aligned::{A4, Aligned};
-use fatrs_block_device::BlockDevice;
 use embedded_io_async::{ErrorType, Read, Seek, SeekFrom, Write};
+use fatrs_block_device::BlockDevice;
 
 const BLOCK_SIZE: usize = 512;
 

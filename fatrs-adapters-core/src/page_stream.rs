@@ -23,10 +23,10 @@
 //! stream.flush().await?;
 //! ```
 
-use fatrs_block_device::BlockDevice;
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
+use fatrs_block_device::BlockDevice;
 
-use crate::page_buffer::{PageBuffer, PageBufferError, BLOCK_SIZE};
+use crate::page_buffer::{BLOCK_SIZE, PageBuffer, PageBufferError};
 
 /// Error type for PageStream operations
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -108,7 +108,12 @@ impl<D: BlockDevice<BLOCK_SIZE>, const BLOCKS_PER_PAGE: usize> PageStream<D, BLO
         if let Some(size) = self.cached_size {
             return Ok(size);
         }
-        let size = self.buffer.inner_mut().size().await.map_err(PageBufferError::from)?;
+        let size = self
+            .buffer
+            .inner_mut()
+            .size()
+            .await
+            .map_err(PageBufferError::from)?;
         self.cached_size = Some(size);
         Ok(size)
     }
@@ -283,7 +288,12 @@ where
         let new_offset = match pos {
             SeekFrom::Start(offset) => offset,
             SeekFrom::End(offset) => {
-                let size = self.buffer.inner_mut().size().await.map_err(PageBufferError::from)?;
+                let size = self
+                    .buffer
+                    .inner_mut()
+                    .size()
+                    .await
+                    .map_err(PageBufferError::from)?;
                 if offset >= 0 {
                     size.saturating_add(offset as u64)
                 } else {
@@ -320,13 +330,19 @@ mod tests {
     use embedded_io_adapters::tokio_1::FromTokio;
     use embedded_io_async::ErrorType;
 
-    struct TestBlockDevice<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek>(T);
+    struct TestBlockDevice<
+        T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek,
+    >(T);
 
-    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek> ErrorType for TestBlockDevice<T> {
+    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek> ErrorType
+        for TestBlockDevice<T>
+    {
         type Error = T::Error;
     }
 
-    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek> BlockDevice<512> for TestBlockDevice<T> {
+    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek>
+        BlockDevice<512> for TestBlockDevice<T>
+    {
         type Error = T::Error;
         type Align = A4;
 
@@ -458,7 +474,10 @@ mod tests {
         assert_eq!(stream.position(), 125);
 
         // SeekFrom::End
-        assert_eq!(stream.seek(SeekFrom::End(-100)).await.unwrap(), 64 * 1024 - 100);
+        assert_eq!(
+            stream.seek(SeekFrom::End(-100)).await.unwrap(),
+            64 * 1024 - 100
+        );
     }
 
     #[tokio::test]
@@ -486,7 +505,10 @@ mod tests {
         let block_dev = TestBlockDevice(FromTokio::new(cursor));
 
         let stream: PageStream4K<_> = PageStream4K::new(block_dev);
-        assert_eq!(PageStream4K::<TestBlockDevice<FromTokio<std::io::Cursor<Vec<u8>>>>>::PAGE_SIZE, 4096);
+        assert_eq!(
+            PageStream4K::<TestBlockDevice<FromTokio<std::io::Cursor<Vec<u8>>>>>::PAGE_SIZE,
+            4096
+        );
         drop(stream);
     }
 }

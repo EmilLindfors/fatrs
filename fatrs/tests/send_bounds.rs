@@ -76,13 +76,17 @@ fn test_send_block_device_is_send() {
 fn test_filesystem_is_send_when_io_is_send() {
     // This test verifies that FileSystem<SendBlockDevice, ...> is Send
     // It will fail to compile if FileSystem is not Send
-    assert_send::<fatrs::FileSystem<SendBlockDevice, fatrs::DefaultTimeProvider, fatrs::LossyOemCpConverter>>();
+    assert_send::<
+        fatrs::FileSystem<SendBlockDevice, fatrs::DefaultTimeProvider, fatrs::LossyOemCpConverter>,
+    >();
 }
 
 #[test]
 fn test_filesystem_is_sync_when_io_is_send() {
     // async_lock::Mutex<T> is Sync when T: Send
-    assert_sync::<fatrs::FileSystem<SendBlockDevice, fatrs::DefaultTimeProvider, fatrs::LossyOemCpConverter>>();
+    assert_sync::<
+        fatrs::FileSystem<SendBlockDevice, fatrs::DefaultTimeProvider, fatrs::LossyOemCpConverter>,
+    >();
 }
 
 // Note: tokio::spawn requires Send futures, but embedded-io-async's async fn

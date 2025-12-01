@@ -28,8 +28,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use aligned::Aligned;
-use fatrs_block_device::BlockDevice;
 use fatrs_adapters_core::BLOCK_SIZE;
+use fatrs_block_device::BlockDevice;
 
 /// Error type for LargePageBuffer operations
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,10 +48,7 @@ pub enum LargePageBufferError<E> {
     /// No page is currently loaded
     NoPageLoaded,
     /// Invalid page size (must be multiple of block size)
-    InvalidPageSize {
-        page_size: usize,
-        block_size: usize,
-    },
+    InvalidPageSize { page_size: usize, block_size: usize },
 }
 
 impl<E: core::fmt::Display> core::fmt::Display for LargePageBufferError<E> {
@@ -148,8 +145,9 @@ impl<D: BlockDevice<BLOCK_SIZE>> LargePageBuffer<D> {
         let blocks_per_page = page_size / BLOCK_SIZE;
 
         // Create aligned blocks for efficient I/O
-        let buffer: Vec<Aligned<D::Align, [u8; BLOCK_SIZE]>> =
-            (0..blocks_per_page).map(|_| Aligned([0u8; BLOCK_SIZE])).collect();
+        let buffer: Vec<Aligned<D::Align, [u8; BLOCK_SIZE]>> = (0..blocks_per_page)
+            .map(|_| Aligned([0u8; BLOCK_SIZE]))
+            .collect();
 
         Self {
             inner,
@@ -252,7 +250,10 @@ impl<D: BlockDevice<BLOCK_SIZE>> LargePageBuffer<D> {
     }
 
     /// Write the buffer contents to a page on the block device
-    pub async fn write_page(&mut self, page_num: u32) -> Result<(), LargePageBufferError<D::Error>> {
+    pub async fn write_page(
+        &mut self,
+        page_num: u32,
+    ) -> Result<(), LargePageBufferError<D::Error>> {
         let block_address = self.page_to_block_address(page_num);
 
         // Write all blocks in one call (efficient!)
@@ -372,7 +373,8 @@ impl<D: BlockDevice<BLOCK_SIZE>> LargePageBuffer<D> {
         );
 
         let new_blocks_per_page = new_page_size / BLOCK_SIZE;
-        self.buffer.resize(new_blocks_per_page, Aligned([0u8; BLOCK_SIZE]));
+        self.buffer
+            .resize(new_blocks_per_page, Aligned([0u8; BLOCK_SIZE]));
         self.page_size = new_page_size;
         self.blocks_per_page = new_blocks_per_page;
         self.dirty = false;
@@ -502,9 +504,11 @@ mod tests {
         // Verify
         let inner = buffer.into_inner().0.into_inner().into_inner();
         let page1_start = presets::PAGE_64K;
-        assert!(inner[page1_start..page1_start + presets::PAGE_64K]
-            .iter()
-            .all(|&b| b == b'X'));
+        assert!(
+            inner[page1_start..page1_start + presets::PAGE_64K]
+                .iter()
+                .all(|&b| b == b'X')
+        );
     }
 
     #[tokio::test]

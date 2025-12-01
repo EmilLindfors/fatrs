@@ -10,15 +10,15 @@ use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
-    Frame, Terminal,
 };
 
 mod app;
@@ -116,7 +116,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, mut app: FatApp) -
                     InputMode::Normal => match key.code {
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            return Ok(())
+                            return Ok(());
                         }
                         KeyCode::Up | KeyCode::Char('k') => app.previous(),
                         KeyCode::Down | KeyCode::Char('j') => app.next(),
@@ -174,7 +174,12 @@ fn ui(f: &mut Frame, app: &mut FatApp) {
 
     // Header
     let header = Paragraph::new(vec![Line::from(vec![
-        Span::styled(" FAT Browser ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " FAT Browser ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" | "),
         Span::styled(
             format!("/{}", app.current_path.join("/")),
@@ -204,7 +209,11 @@ fn ui(f: &mut Frame, app: &mut FatApp) {
                 format!(
                     "{} | {} | {}",
                     entry.name,
-                    if entry.is_dir { "DIR" } else { &format_size(entry.size) },
+                    if entry.is_dir {
+                        "DIR"
+                    } else {
+                        &format_size(entry.size)
+                    },
                     entry.modified
                 )
             } else {
@@ -229,7 +238,12 @@ fn ui(f: &mut Frame, app: &mut FatApp) {
                     Span::raw(":Del "),
                     Span::styled("r", Style::default().fg(Color::Cyan)),
                     Span::raw(":Rename "),
-                    Span::styled("?", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "?",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(":Help", Style::default().fg(Color::Yellow)),
                 ]),
             ])
@@ -238,7 +252,12 @@ fn ui(f: &mut Frame, app: &mut FatApp) {
             Line::from(vec![
                 Span::raw(&app.input_prompt),
                 Span::styled(&app.input_buffer, Style::default().fg(Color::Yellow)),
-                Span::styled("_", Style::default().fg(Color::Yellow).add_modifier(Modifier::SLOW_BLINK)),
+                Span::styled(
+                    "_",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::SLOW_BLINK),
+                ),
             ]),
             Line::from(vec![
                 Span::styled(" Enter", Style::default().fg(Color::Cyan)),
@@ -264,7 +283,9 @@ fn render_browser(f: &mut Frame, app: &mut FatApp, area: Rect) {
         .map(|entry| {
             let icon = if entry.is_dir { " " } else { " " };
             let style = if entry.is_dir {
-                Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
@@ -308,11 +329,10 @@ fn render_file_content(f: &mut Frame, app: &FatApp, area: Rect) {
         .collect();
 
     let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" {} (text) ", app.viewing_file.as_deref().unwrap_or(""))),
-        )
+        .block(Block::default().borders(Borders::ALL).title(format!(
+            " {} (text) ",
+            app.viewing_file.as_deref().unwrap_or("")
+        )))
         .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
@@ -379,47 +399,56 @@ fn render_hex_view(f: &mut Frame, app: &FatApp, area: Rect) {
         lines.push(Line::from(spans));
     }
 
-    let paragraph = Paragraph::new(lines).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!(
-                " {} (hex - {} bytes) ",
-                app.viewing_file.as_deref().unwrap_or(""),
-                bytes.len()
-            )),
-    );
+    let paragraph =
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(format!(
+            " {} (hex - {} bytes) ",
+            app.viewing_file.as_deref().unwrap_or(""),
+            bytes.len()
+        )));
 
     f.render_widget(paragraph, area);
 }
 
 fn render_help(f: &mut Frame, area: Rect) {
     let help_text = vec![
-        Line::from(Span::styled("Navigation", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Navigation",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  j/k or Up/Down    Move cursor"),
         Line::from("  Enter/l/Right     Open file/directory"),
         Line::from("  Backspace/h/Left  Go to parent directory"),
         Line::from("  PageUp/PageDown   Scroll content"),
         Line::from("  Home/End          Scroll to top/bottom"),
         Line::from(""),
-        Line::from(Span::styled("Viewing", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Viewing",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  v                 View file as text"),
         Line::from("  x                 View file as hex"),
         Line::from("  Esc               Close viewer"),
         Line::from(""),
-        Line::from(Span::styled("File Operations", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "File Operations",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  n                 Create new file"),
         Line::from("  N                 Create new directory"),
         Line::from("  d                 Delete selected"),
         Line::from("  r                 Rename selected"),
         Line::from("  R                 Refresh directory"),
         Line::from(""),
-        Line::from(Span::styled("General", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "General",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from("  ?                 Toggle this help"),
         Line::from("  q / Ctrl+C        Quit"),
     ];
 
-    let paragraph = Paragraph::new(help_text)
-        .block(Block::default().borders(Borders::ALL).title(" Help "));
+    let paragraph =
+        Paragraph::new(help_text).block(Block::default().borders(Borders::ALL).title(" Help "));
 
     f.render_widget(paragraph, area);
 }

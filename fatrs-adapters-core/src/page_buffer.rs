@@ -200,7 +200,10 @@ impl<D: BlockDevice<BLOCK_SIZE>, const BLOCKS_PER_PAGE: usize> PageBuffer<D, BLO
             self.dirty = true;
             // Safe: buffer is contiguous array of aligned blocks
             Some(unsafe {
-                core::slice::from_raw_parts_mut(self.buffer.as_mut_ptr() as *mut u8, Self::PAGE_SIZE)
+                core::slice::from_raw_parts_mut(
+                    self.buffer.as_mut_ptr() as *mut u8,
+                    Self::PAGE_SIZE,
+                )
             })
         } else {
             None
@@ -345,7 +348,10 @@ impl<D: BlockDevice<BLOCK_SIZE>, const BLOCKS_PER_PAGE: usize> PageBuffer<D, BLO
 
             // Copy from source to temp buffer
             let dest = unsafe {
-                core::slice::from_raw_parts_mut(temp_buffer.as_mut_ptr() as *mut u8, Self::PAGE_SIZE)
+                core::slice::from_raw_parts_mut(
+                    temp_buffer.as_mut_ptr() as *mut u8,
+                    Self::PAGE_SIZE,
+                )
             };
             dest.copy_from_slice(&src[offset..offset + Self::PAGE_SIZE]);
 
@@ -540,9 +546,11 @@ mod tests {
         // Verify by reading back
         let inner = page_buf.into_inner().0.into_inner().into_inner();
         let page2_start = 2 * 4096;
-        assert!(inner[page2_start..page2_start + 4096]
-            .iter()
-            .all(|&b| b == b'X'));
+        assert!(
+            inner[page2_start..page2_start + 4096]
+                .iter()
+                .all(|&b| b == b'X')
+        );
     }
 
     #[tokio::test]

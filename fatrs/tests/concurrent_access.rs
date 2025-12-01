@@ -15,7 +15,7 @@ use std::sync::Arc;
 use async_lock::{Barrier, Mutex};
 use embedded_io_async::{ErrorType, Read, Seek, SeekFrom, Write};
 use fatrs::{FileSystem, FsOptions};
-use tokio::task::{spawn_local, LocalSet};
+use tokio::task::{LocalSet, spawn_local};
 
 /// Thread-safe Embassy-compatible block device wrapper
 struct SharedBlockDevice {

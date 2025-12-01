@@ -69,7 +69,11 @@ fn main() -> Result<()> {
     }
 
     info!("fatrs-mount v{}", env!("CARGO_PKG_VERSION"));
-    info!("Mounting {} to {}", args.image.display(), args.mountpoint.display());
+    info!(
+        "Mounting {} to {}",
+        args.image.display(),
+        args.mountpoint.display()
+    );
 
     if args.transaction_safe {
         info!("Transaction safety: ENABLED");
@@ -85,12 +89,14 @@ fn main() -> Result<()> {
         anyhow::bail!("Mount point does not exist: {}", args.mountpoint.display());
     }
     if !args.mountpoint.is_dir() {
-        anyhow::bail!("Mount point is not a directory: {}", args.mountpoint.display());
+        anyhow::bail!(
+            "Mount point is not a directory: {}",
+            args.mountpoint.display()
+        );
     }
 
     // Create a tokio runtime for initialization
-    let runtime = tokio::runtime::Runtime::new()
-        .context("Failed to create tokio runtime")?;
+    let runtime = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
     // Open the FAT image and create filesystem inside the runtime
     let (fs, file_info) = runtime.block_on(async {

@@ -131,7 +131,8 @@ impl FatCache {
 
             // Copy from cache
             let to_copy = buf.len().min(sector.valid_len - offset_in_sector);
-            buf[..to_copy].copy_from_slice(&sector.data[offset_in_sector..offset_in_sector + to_copy]);
+            buf[..to_copy]
+                .copy_from_slice(&sector.data[offset_in_sector..offset_in_sector + to_copy]);
             return Ok(());
         }
 
@@ -147,7 +148,9 @@ impl FatCache {
                 storage.seek(SeekFrom::Start(old_sector.offset)).await?;
                 let mut written = 0;
                 while written < old_sector.valid_len {
-                    let n = storage.write(&old_sector.data[written..old_sector.valid_len]).await?;
+                    let n = storage
+                        .write(&old_sector.data[written..old_sector.valid_len])
+                        .await?;
                     if n == 0 {
                         return Err(Error::WriteZero);
                     }
@@ -159,7 +162,9 @@ impl FatCache {
         // Read new sector
         storage.seek(SeekFrom::Start(sector_offset)).await?;
         let mut sector_data = [0u8; 4096];
-        let bytes_read = storage.read(&mut sector_data[..self.sector_size as usize]).await?;
+        let bytes_read = storage
+            .read(&mut sector_data[..self.sector_size as usize])
+            .await?;
 
         // Cache the sector
         self.access_counter = self.access_counter.wrapping_add(1);
@@ -207,7 +212,9 @@ impl FatCache {
                     storage.seek(SeekFrom::Start(old_sector.offset)).await?;
                     let mut written = 0;
                     while written < old_sector.valid_len {
-                        let n = storage.write(&old_sector.data[written..old_sector.valid_len]).await?;
+                        let n = storage
+                            .write(&old_sector.data[written..old_sector.valid_len])
+                            .await?;
                         if n == 0 {
                             return Err(Error::WriteZero);
                         }
@@ -219,7 +226,9 @@ impl FatCache {
             // Read existing sector (for partial writes)
             storage.seek(SeekFrom::Start(sector_offset)).await?;
             let mut sector_data = [0u8; 4096];
-            let bytes_read = storage.read(&mut sector_data[..self.sector_size as usize]).await?;
+            let bytes_read = storage
+                .read(&mut sector_data[..self.sector_size as usize])
+                .await?;
 
             self.access_counter = self.access_counter.wrapping_add(1);
             self.sectors[slot_idx] = Some(CachedFatSector {
@@ -257,7 +266,9 @@ impl FatCache {
                     // Write the sector data
                     let mut written = 0;
                     while written < sector.valid_len {
-                        let n = storage.write(&sector.data[written..sector.valid_len]).await?;
+                        let n = storage
+                            .write(&sector.data[written..sector.valid_len])
+                            .await?;
                         if n == 0 {
                             return Err(Error::WriteZero);
                         }
@@ -345,7 +356,9 @@ where
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         // Read through cache - cache handles all error conversions
         let mut cache = self.cache.lock().await;
-        cache.read_cached(&mut self.inner, self.current_offset, buf).await?;
+        cache
+            .read_cached(&mut self.inner, self.current_offset, buf)
+            .await?;
         self.current_offset += buf.len() as u64;
         Ok(buf.len())
     }
@@ -360,7 +373,9 @@ where
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         // Write through cache
         let mut cache = self.cache.lock().await;
-        cache.write_cached(&mut self.inner, self.current_offset, buf).await?;
+        cache
+            .write_cached(&mut self.inner, self.current_offset, buf)
+            .await?;
         self.current_offset += buf.len() as u64;
         Ok(buf.len())
     }
@@ -380,7 +395,8 @@ where
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let new_offset = match pos {
             SeekFrom::Start(offset) => offset,
-            SeekFrom::Current(delta) => {
+            SeekFrom::Current(delta) =>
+            {
                 #[allow(clippy::cast_sign_loss)]
                 if delta >= 0 {
                     self.current_offset + delta as u64

@@ -8,6 +8,7 @@ use core::str;
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;
 
+use crate::FileContext;
 #[cfg(feature = "lfn")]
 use crate::dir::LfnBuffer;
 use crate::dir::{Dir, DirRawStream};
@@ -16,7 +17,6 @@ use crate::file::File;
 use crate::fs::{FatType, FileSystem, OemCpConverter, ReadWriteSeek};
 use crate::io::{self, Read, ReadLeExt, Write, WriteLeExt};
 use crate::time::{Date, DateTime};
-use crate::FileContext;
 
 bitflags! {
     /// A FAT file attributes.
@@ -185,11 +185,7 @@ impl DirFileEntryData {
             0
         };
         let n = (u32::from(first_cluster_hi) << 16) | u32::from(self.first_cluster_lo);
-        if n == 0 {
-            None
-        } else {
-            Some(n)
-        }
+        if n == 0 { None } else { Some(n) }
     }
 
     pub(crate) fn set_first_cluster(&mut self, cluster: Option<u32>, fat_type: FatType) {
@@ -375,7 +371,10 @@ pub(crate) enum DirEntryData {
 }
 
 impl DirEntryData {
-    pub(crate) async fn serialize<E: IoError, W: Write<Error = Error<E>>>(&self, wrt: &mut W) -> Result<(), Error<E>> {
+    pub(crate) async fn serialize<E: IoError, W: Write<Error = Error<E>>>(
+        &self,
+        wrt: &mut W,
+    ) -> Result<(), Error<E>> {
         trace!("DirEntryData::serialize");
         match self {
             DirEntryData::File(file) => file.serialize(wrt).await,
@@ -383,7 +382,9 @@ impl DirEntryData {
         }
     }
 
-    pub(crate) async fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>> {
+    pub(crate) async fn deserialize<E: IoError, R: Read<Error = Error<E>>>(
+        rdr: &mut R,
+    ) -> Result<Self, Error<E>> {
         trace!("DirEntryData::deserialize");
         let mut name = [0; SFN_SIZE];
         match rdr.read_exact(&mut name).await {
@@ -538,7 +539,10 @@ impl DirEntryEditor {
     }
 
     #[allow(clippy::await_holding_refcell_ref)]
-    async fn write<IO: ReadWriteSeek, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
+    async fn write<IO: ReadWriteSeek, TP, OCC>(
+        &self,
+        fs: &FileSystem<IO, TP, OCC>,
+    ) -> Result<(), IO::Error> {
         {
             let mut disk = fs.disk.lock().await;
             disk.seek(io::SeekFrom::Start(self.pos)).await?;
@@ -609,7 +613,9 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
             }
         }
 
-        self.data.lowercase_name().to_string(&self.fs.options.oem_cp_converter)
+        self.data
+            .lowercase_name()
+            .to_string(&self.fs.options.oem_cp_converter)
     }
 
     /// Returns file attributes.
@@ -663,9 +669,17 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     /// Will panic if this is not a file.
     #[cfg(feature = "file-locking")]
     #[must_use]
-    pub(crate) fn to_file_locked(&self, lock_type: crate::file_locking::LockType) -> File<'a, IO, TP, OCC> {
+    pub(crate) fn to_file_locked(
+        &self,
+        lock_type: crate::file_locking::LockType,
+    ) -> File<'a, IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
-        File::new_with_lock(self.first_cluster(), Some(self.editor()), self.fs, lock_type)
+        File::new_with_lock(
+            self.first_cluster(),
+            Some(self.editor()),
+            self.fs,
+            lock_type,
+        )
     }
 
     /// Returns `File` struct for this entry, resuming from an existing [`FileContext`].
@@ -689,7 +703,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     ///
     /// Will panic if this is not a file.
     #[allow(clippy::missing_errors_doc)]
-    pub fn try_to_file_with_context(&self, context: FileContext) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
+    pub fn try_to_file_with_context(
+        &self,
+        context: FileContext,
+    ) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         assert!(!self.is_dir(), "Not a file entry");
         if context.entry != Some(self.editor()) {
             return Err(Error::InvalidInput);
@@ -781,7 +798,8 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
             }
         }
 
-        self.short_name.eq_ignore_case(name, &self.fs.options.oem_cp_converter)
+        self.short_name
+            .eq_ignore_case(name, &self.fs.options.oem_cp_converter)
     }
 }
 
@@ -806,28 +824,49 @@ mod tests {
     #[test]
     fn short_name_with_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
-        assert_eq!(ShortName::new(b"FOO     BAR").to_string(&oem_cp_conv), "FOO.BAR");
-        assert_eq!(ShortName::new(b"LOOK AT M E").to_string(&oem_cp_conv), "LOOK AT.M E");
+        assert_eq!(
+            ShortName::new(b"FOO     BAR").to_string(&oem_cp_conv),
+            "FOO.BAR"
+        );
+        assert_eq!(
+            ShortName::new(b"LOOK AT M E").to_string(&oem_cp_conv),
+            "LOOK AT.M E"
+        );
         assert_eq!(
             ShortName::new(b"\x99OOK AT M \x99").to_string(&oem_cp_conv),
             "\u{FFFD}OOK AT.M \u{FFFD}"
         );
-        assert!(ShortName::new(b"\x99OOK AT M \x99").eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
+        assert!(
+            ShortName::new(b"\x99OOK AT M \x99")
+                .eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv)
+        );
     }
 
     #[test]
     fn short_name_without_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
-        assert_eq!(ShortName::new(b"FOO        ").to_string(&oem_cp_conv), "FOO");
-        assert_eq!(ShortName::new(b"LOOK AT    ").to_string(&oem_cp_conv), "LOOK AT");
+        assert_eq!(
+            ShortName::new(b"FOO        ").to_string(&oem_cp_conv),
+            "FOO"
+        );
+        assert_eq!(
+            ShortName::new(b"LOOK AT    ").to_string(&oem_cp_conv),
+            "LOOK AT"
+        );
     }
 
     #[test]
     fn short_name_eq_ignore_case() {
         let oem_cp_conv = LossyOemCpConverter::new();
         let raw_short_name: &[u8; SFN_SIZE] = b"\x99OOK AT M \x99";
-        assert!(ShortName::new(raw_short_name).eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
-        assert!(ShortName::new(raw_short_name).eq_ignore_case("\u{FFFD}ook AT.m \u{FFFD}", &oem_cp_conv));
+        assert!(
+            ShortName::new(raw_short_name)
+                .eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv)
+        );
+        assert!(
+            ShortName::new(raw_short_name)
+                .eq_ignore_case("\u{FFFD}ook AT.m \u{FFFD}", &oem_cp_conv)
+        );
     }
 
     #[test]
@@ -835,7 +874,9 @@ mod tests {
         let raw_short_name = [0x05; SFN_SIZE];
         assert_eq!(
             ShortName::new(&raw_short_name).as_bytes(),
-            [0xE5, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, b'.', 0x05, 0x05, 0x05]
+            [
+                0xE5, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, b'.', 0x05, 0x05, 0x05
+            ]
         );
     }
 

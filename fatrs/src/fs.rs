@@ -1,24 +1,25 @@
+use async_lock::Mutex;
 use core::borrow::BorrowMut;
 use core::char;
-use core::sync::atomic::{AtomicU8, Ordering};
-use async_lock::Mutex;
 use core::cmp;
 use core::fmt::Debug;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU8, Ordering};
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;
 #[cfg(feature = "std")]
 use embedded_io_adapters::tokio_1::FromTokio;
 
-use crate::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
+use crate::boot_sector::{BiosParameterBlock, BootSector, format_boot_sector};
 use crate::dir::{Dir, DirRawStream};
 use crate::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
 use crate::error::Error;
 use crate::file::File;
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use crate::table::{
-    alloc_cluster, count_free_clusters, format_fat, read_fat_flags, ClusterIterator, RESERVED_FAT_ENTRIES,
+    ClusterIterator, RESERVED_FAT_ENTRIES, alloc_cluster, count_free_clusters, format_fat,
+    read_fat_flags,
 };
 use crate::time::{DefaultTimeProvider, TimeProvider};
 
@@ -193,8 +194,10 @@ impl FsInfoSector {
         let reserved = [0_u8; 480];
         wrt.write_all(&reserved).await?;
         wrt.write_u32_le(Self::STRUC_SIG).await?;
-        wrt.write_u32_le(self.free_cluster_count.unwrap_or(0xFFFF_FFFF)).await?;
-        wrt.write_u32_le(self.next_free_cluster.unwrap_or(0xFFFF_FFFF)).await?;
+        wrt.write_u32_le(self.free_cluster_count.unwrap_or(0xFFFF_FFFF))
+            .await?;
+        wrt.write_u32_le(self.next_free_cluster.unwrap_or(0xFFFF_FFFF))
+            .await?;
         let reserved2 = [0_u8; 12];
         wrt.write_all(&reserved2).await?;
         wrt.write_u32_le(Self::TRAIL_SIG).await?;
@@ -274,7 +277,10 @@ impl<TP: TimeProvider, OCC: OemCpConverter> FsOptions<TP, OCC> {
     }
 
     /// Changes default OEM code page encoder-decoder.
-    pub fn oem_cp_converter<OCC2: OemCpConverter>(self, oem_cp_converter: OCC2) -> FsOptions<TP, OCC2> {
+    pub fn oem_cp_converter<OCC2: OemCpConverter>(
+        self,
+        oem_cp_converter: OCC2,
+    ) -> FsOptions<TP, OCC2> {
         FsOptions::<TP, OCC2> {
             update_accessed_date: self.update_accessed_date,
             oem_cp_converter,
@@ -365,7 +371,9 @@ impl<T: ReadWriteSeek> IntoStorage<T> for T {
 }
 
 #[cfg(feature = "std")]
-impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + tokio::io::AsyncSeek + Unpin> IntoStorage<FromTokio<T>> for T {
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + tokio::io::AsyncSeek + Unpin>
+    IntoStorage<FromTokio<T>> for T
+{
     fn into_storage(self) -> FromTokio<Self> {
         FromTokio::new(self)
     }
@@ -392,7 +400,10 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// # Panics
     ///
     /// Panics in non-optimized build if `storage` position returned by `seek` is not zero.
-    pub async fn new<T: IntoStorage<IO>>(storage: T, options: FsOptions<TP, OCC>) -> Result<Self, Error<IO::Error>> {
+    pub async fn new<T: IntoStorage<IO>>(
+        storage: T,
+        options: FsOptions<TP, OCC>,
+    ) -> Result<Self, Error<IO::Error>> {
         // Make sure given image is not seeked
         let mut disk = storage.into_storage();
         trace!("FileSystem::new");
@@ -412,8 +423,10 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
         // read FSInfo sector if this is FAT32
         let mut fs_info = if fat_type == FatType::Fat32 {
-            disk.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector())))
-                .await?;
+            disk.seek(SeekFrom::Start(
+                bpb.bytes_from_sectors(bpb.fs_info_sector()),
+            ))
+            .await?;
             FsInfoSector::deserialize(&mut disk).await?
         } else {
             FsInfoSector::default()
@@ -466,8 +479,13 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             trace!("Building cluster bitmap from FAT...");
             let mut bitmap = fs.cluster_bitmap.lock().await;
             let mut fat = fs.fat_slice();
-            bitmap.build_from_fat(&mut fat, fat_type, total_clusters).await?;
-            trace!("Cluster bitmap built: {} free clusters", bitmap.free_count());
+            bitmap
+                .build_from_fat(&mut fat, fat_type, total_clusters)
+                .await?;
+            trace!(
+                "Cluster bitmap built: {} free clusters",
+                bitmap.free_count()
+            );
         }
 
         // Initialize and recover transaction log (power-loss resilience)
@@ -493,7 +511,10 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
                 .collect();
 
             if !incomplete.is_empty() {
-                warn!("Found {} incomplete transaction(s), performing recovery...", incomplete.len());
+                warn!(
+                    "Found {} incomplete transaction(s), performing recovery...",
+                    incomplete.len()
+                );
                 for (slot, state, tx_type) in incomplete {
                     warn!("Recovering transaction slot {}: {:?}", slot, tx_type);
                     // For pending transactions, we roll back (clear the intent)
@@ -509,7 +530,10 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
                             // For now, we clear it (conservative approach)
                             // In the future, we could add logic to verify and complete/rollback
                             tx_log.clear(&mut *disk, slot).await?;
-                            warn!("Cleared in-progress transaction slot {} (conservative recovery)", slot);
+                            warn!(
+                                "Cleared in-progress transaction slot {} (conservative recovery)",
+                                slot
+                            );
                         }
                         _ => {}
                     }
@@ -552,7 +576,10 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     fn sector_from_cluster(&self, cluster: u32) -> u32 {
-        self.first_data_sector + self.bpb.sectors_from_clusters(cluster - RESERVED_FAT_ENTRIES)
+        self.first_data_sector
+            + self
+                .bpb
+                .sectors_from_clusters(cluster - RESERVED_FAT_ENTRIES)
     }
 
     pub fn cluster_size(&self) -> u32 {
@@ -564,7 +591,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     pub(crate) fn bytes_from_clusters(&self, clusters: u32) -> u64 {
-        self.bpb.bytes_from_sectors(self.bpb.sectors_from_clusters(clusters))
+        self.bpb
+            .bytes_from_sectors(self.bpb.sectors_from_clusters(clusters))
     }
 
     pub(crate) fn clusters_from_bytes(&self, bytes: u64) -> u32 {
@@ -595,7 +623,10 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         ClusterIterator::new(disk_slice, self.fat_type, cluster)
     }
 
-    pub(crate) async fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
+    pub(crate) async fn truncate_cluster_chain(
+        &self,
+        cluster: u32,
+    ) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
         let num_free = iter.truncate().await?;
         let mut fs_info = self.fs_info.lock().await;
@@ -608,9 +639,13 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         #[cfg(feature = "cluster-bitmap")]
         let mut clusters_to_free = {
             #[cfg(all(feature = "alloc", not(feature = "std")))]
-            { alloc::vec::Vec::new() }
+            {
+                alloc::vec::Vec::new()
+            }
             #[cfg(feature = "std")]
-            { std::vec::Vec::new() }
+            {
+                std::vec::Vec::new()
+            }
         };
 
         #[cfg(feature = "cluster-bitmap")]
@@ -642,14 +677,22 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     #[allow(clippy::await_holding_refcell_ref)]
-    pub(crate) async fn alloc_cluster(&self, prev_cluster: Option<u32>, zero: bool) -> Result<u32, Error<IO::Error>> {
+    pub(crate) async fn alloc_cluster(
+        &self,
+        prev_cluster: Option<u32>,
+        zero: bool,
+    ) -> Result<u32, Error<IO::Error>> {
         trace!("alloc_cluster");
 
         // Use cluster bitmap for fast allocation if enabled
         #[cfg(feature = "cluster-bitmap")]
         let hint = {
             let mut bitmap = self.cluster_bitmap.lock().await;
-            let hint_from_fsinfo = self.fs_info.lock().await.next_free_cluster
+            let hint_from_fsinfo = self
+                .fs_info
+                .lock()
+                .await
+                .next_free_cluster
                 .unwrap_or(RESERVED_FAT_ENTRIES);
 
             // Find free cluster using bitmap (O(1) average instead of O(n))
@@ -667,7 +710,14 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
         let cluster = {
             let mut fat = self.fat_slice();
-            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters).await?
+            alloc_cluster(
+                &mut fat,
+                self.fat_type,
+                prev_cluster,
+                hint,
+                self.total_clusters,
+            )
+            .await?
         };
 
         // Update bitmap to mark cluster as allocated
@@ -679,7 +729,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
         if zero {
             let mut disk = self.disk.lock().await;
-            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster))).await?;
+            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))
+                .await?;
             write_zeros(&mut *disk, u64::from(self.cluster_size())).await?;
         }
         let mut fs_info = self.fs_info.lock().await;
@@ -727,8 +778,12 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Forces free clusters recalculation.
     async fn recalc_free_clusters(&self) -> Result<u32, Error<IO::Error>> {
         let mut fat = self.fat_slice();
-        let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters).await?;
-        self.fs_info.lock().await.set_free_cluster_count(free_cluster_count);
+        let free_cluster_count =
+            count_free_clusters(&mut fat, self.fat_type, self.total_clusters).await?;
+        self.fs_info
+            .lock()
+            .await
+            .set_free_cluster_count(free_cluster_count);
         Ok(free_cluster_count)
     }
 
@@ -760,7 +815,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// - Number of fast allocations performed
     /// - Bitmap memory usage
     #[cfg(feature = "cluster-bitmap")]
-    pub async fn cluster_bitmap_statistics(&self) -> crate::cluster_bitmap::ClusterBitmapStatistics {
+    pub async fn cluster_bitmap_statistics(
+        &self,
+    ) -> crate::cluster_bitmap::ClusterBitmapStatistics {
         self.cluster_bitmap.lock().await.statistics()
     }
 
@@ -889,7 +946,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut flags = self.bpb.status_flags();
         flags.dirty |= dirty;
         // Check if flags has changed
-        let current_flags = FsStatusFlags::decode(self.current_status_flags.load(Ordering::Acquire));
+        let current_flags =
+            FsStatusFlags::decode(self.current_status_flags.load(Ordering::Acquire));
         if flags == current_flags {
             // Nothing to do
             return Ok(());
@@ -906,7 +964,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         disk.seek(io::SeekFrom::Start(offset)).await?;
         disk.write_u8(encoded).await?;
         disk.flush().await?;
-        self.current_status_flags.store(flags.encode(), Ordering::Release);
+        self.current_status_flags
+            .store(flags.encode(), Ordering::Release);
         Ok(())
     }
 
@@ -922,7 +981,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
                     &self.bpb,
                     FsIoAdapter { fs: self },
                 )),
-                FatType::Fat32 => DirRawStream::File(File::new(Some(self.bpb.root_dir_first_cluster), None, self)),
+                FatType::Fat32 => {
+                    DirRawStream::File(File::new(Some(self.bpb.root_dir_first_cluster), None, self))
+                }
             }
         };
         Dir::new(root_rdr, self)
@@ -954,7 +1015,9 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     #[cfg(feature = "alloc")]
-    pub async fn read_volume_label_from_root_dir(&self) -> Result<Option<String>, Error<IO::Error>> {
+    pub async fn read_volume_label_from_root_dir(
+        &self,
+    ) -> Result<Option<String>, Error<IO::Error>> {
         // Note: DirEntry::file_short_name() cannot be used because it interprets name as 8.3
         // (adds dot before an extension)
         let volume_label_opt = self.read_volume_label_from_root_dir_as_bytes().await?;
@@ -981,7 +1044,9 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP
     /// # Errors
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub async fn read_volume_label_from_root_dir_as_bytes(&self) -> Result<Option<[u8; SFN_SIZE]>, Error<IO::Error>> {
+    pub async fn read_volume_label_from_root_dir_as_bytes(
+        &self,
+    ) -> Result<Option<[u8; SFN_SIZE]>, Error<IO::Error>> {
         let entry_opt = self.root_dir().find_volume_entry().await?;
         Ok(entry_opt.map(|e| *e.raw_short_name()))
     }
@@ -1084,7 +1149,13 @@ impl<B: BorrowMut<S>, S: ReadWriteSeek> DiskSlice<B, S> {
         }
     }
 
-    fn from_sectors(first_sector: u32, sector_count: u32, mirrors: u8, bpb: &BiosParameterBlock, inner: B) -> Self {
+    fn from_sectors(
+        first_sector: u32,
+        sector_count: u32,
+        mirrors: u8,
+        bpb: &BiosParameterBlock,
+        inner: B,
+    ) -> Self {
         Self::new(
             bpb.bytes_from_sectors(first_sector),
             bpb.bytes_from_sectors(sector_count),
@@ -1127,7 +1198,10 @@ impl<B: BorrowMut<S>, S: Read + Seek> Read for DiskSlice<B, S> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let offset = self.begin + self.offset;
         let read_size = cmp::min(self.size - self.offset, buf.len() as u64) as usize;
-        self.inner.borrow_mut().seek(SeekFrom::Start(offset)).await?;
+        self.inner
+            .borrow_mut()
+            .seek(SeekFrom::Start(offset))
+            .await?;
         let size = self.inner.borrow_mut().read(&mut buf[..read_size]).await?;
         self.offset += size as u64;
         Ok(size)
@@ -1144,7 +1218,9 @@ impl<B: BorrowMut<S>, S: Write + Seek> Write for DiskSlice<B, S> {
         // Write data
         let storage = self.inner.borrow_mut();
         for i in 0..self.mirrors {
-            storage.seek(SeekFrom::Start(offset + u64::from(i) * self.size)).await?;
+            storage
+                .seek(SeekFrom::Start(offset + u64::from(i) * self.size))
+                .await?;
             storage.write_all(&buf[..write_size]).await?;
         }
         self.offset += write_size as u64;
@@ -1464,7 +1540,11 @@ impl FormatVolumeOptions {
         // For FAT32, we need 8 base sectors (includes backup boot sector)
         // For FAT12/16, we need 1 base sector
         // Add 4 sectors for transaction log
-        let base_reserved = if self.fat_type == Some(FatType::Fat32) { 8 } else { 1 };
+        let base_reserved = if self.fat_type == Some(FatType::Fat32) {
+            8
+        } else {
+            1
+        };
         self.reserved_sectors = Some(base_reserved + 4);
         self
     }
@@ -1536,14 +1616,18 @@ where
             dirty: false,
         };
         storage
-            .seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector())))
+            .seek(SeekFrom::Start(
+                bpb.bytes_from_sectors(bpb.fs_info_sector()),
+            ))
             .await?;
         fs_info_sector.serialize(storage).await?;
         write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
 
         // backup boot sector
         storage
-            .seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.backup_boot_sector())))
+            .seek(SeekFrom::Start(
+                bpb.bytes_from_sectors(bpb.backup_boot_sector()),
+            ))
             .await?;
         boot.serialize(storage).await?;
         write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
@@ -1559,7 +1643,14 @@ where
         let mut fat_slice = fat_slice::<S, &mut S>(storage, bpb);
         let sectors_per_fat = bpb.sectors_per_fat();
         let bytes_per_fat = bpb.bytes_from_sectors(sectors_per_fat);
-        format_fat(&mut fat_slice, fat_type, bpb.media, bytes_per_fat, bpb.total_clusters()).await?;
+        format_fat(
+            &mut fat_slice,
+            fat_type,
+            bpb.media,
+            bytes_per_fat,
+            bpb.total_clusters(),
+        )
+        .await?;
     }
 
     // init root directory - zero root directory region for FAT12/16 and alloc first root directory cluster for FAT32
@@ -1575,7 +1666,8 @@ where
         };
         assert!(root_dir_first_cluster == bpb.root_dir_first_cluster);
         let first_data_sector = reserved_sectors + sectors_per_all_fats + root_dir_sectors;
-        let data_sectors_before_root_dir = bpb.sectors_from_clusters(root_dir_first_cluster - RESERVED_FAT_ENTRIES);
+        let data_sectors_before_root_dir =
+            bpb.sectors_from_clusters(root_dir_first_cluster - RESERVED_FAT_ENTRIES);
         let fat32_root_dir_first_sector = first_data_sector + data_sectors_before_root_dir;
         let fat32_root_dir_pos = bpb.bytes_from_sectors(fat32_root_dir_first_sector);
         storage.seek(SeekFrom::Start(fat32_root_dir_pos)).await?;

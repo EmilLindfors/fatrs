@@ -5,10 +5,10 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use fatrs_adapters_alloc::{presets, LargePageStream};
 use clap::{Parser, Subcommand, ValueEnum};
-use fatrs::{FatType, FormatVolumeOptions, FsOptions};
 use embedded_io_adapters::tokio_1::FromTokio;
+use fatrs::{FatType, FormatVolumeOptions, FsOptions};
+use fatrs_adapters_alloc::{LargePageStream, presets};
 
 use crate::block_device::StreamBlockDevice;
 
@@ -280,12 +280,28 @@ pub async fn run(cli: Cli) -> Result<()> {
             fat_type,
             label,
             from,
-        } => cmd_create(&image, &size, fat_type, label.as_deref(), from.as_deref(), page_size).await,
+        } => {
+            cmd_create(
+                &image,
+                &size,
+                fat_type,
+                label.as_deref(),
+                from.as_deref(),
+                page_size,
+            )
+            .await
+        }
         Command::Extract { image, dest } => cmd_extract(&image, &dest, page_size).await,
     }
 }
 
-async fn cmd_ls(image: &Path, path: &str, long: bool, recursive: bool, page_size: usize) -> Result<()> {
+async fn cmd_ls(
+    image: &Path,
+    path: &str,
+    long: bool,
+    recursive: bool,
+    page_size: usize,
+) -> Result<()> {
     let (fs, _) = open_fs_buffered(image, false, page_size).await?;
 
     let root = fs.root_dir();
@@ -384,7 +400,14 @@ where
                     format!("{}/{}", path, name)
                 };
                 let subdir = dir.open_dir(name).await?;
-                Box::pin(list_directory(&subdir, &subpath, long, recursive, depth + 1)).await?;
+                Box::pin(list_directory(
+                    &subdir,
+                    &subpath,
+                    long,
+                    recursive,
+                    depth + 1,
+                ))
+                .await?;
             }
         }
     }
@@ -455,7 +478,13 @@ async fn cmd_cat(image: &Path, path: &str, page_size: usize) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_cp(image: &Path, source: &str, dest: &str, recursive: bool, page_size: usize) -> Result<()> {
+async fn cmd_cp(
+    image: &Path,
+    source: &str,
+    dest: &str,
+    recursive: bool,
+    page_size: usize,
+) -> Result<()> {
     // Paths prefixed with : are inside the image
     let src_in_image = source.starts_with(':');
     let dst_in_image = dest.starts_with(':');
@@ -477,10 +506,22 @@ async fn cmd_cp(image: &Path, source: &str, dest: &str, recursive: bool, page_si
 
     if src_in_image {
         // Copy from image to host filesystem
-        copy_from_image(&root, src_path.trim_start_matches('/'), Path::new(dst_path), recursive).await
+        copy_from_image(
+            &root,
+            src_path.trim_start_matches('/'),
+            Path::new(dst_path),
+            recursive,
+        )
+        .await
     } else {
         // Copy from host filesystem to image
-        copy_to_image(&root, Path::new(src_path), dst_path.trim_start_matches('/'), recursive).await
+        copy_to_image(
+            &root,
+            Path::new(src_path),
+            dst_path.trim_start_matches('/'),
+            recursive,
+        )
+        .await
     }
 }
 

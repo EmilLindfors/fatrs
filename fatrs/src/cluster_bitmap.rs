@@ -20,8 +20,8 @@ use alloc::vec::Vec;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-use crate::error::Error;
 use crate::IoError;
+use crate::error::Error;
 
 /// Free cluster bitmap with fast allocation
 #[cfg(feature = "cluster-bitmap")]
@@ -61,11 +61,23 @@ impl ClusterBitmap {
     #[cfg(not(feature = "alloc"))]
     const MAX_BITMAP_SIZE: usize = {
         #[cfg(feature = "cluster-bitmap-large")]
-        { 16384 } // 128K clusters = 512MB @ 4KB, 4GB @ 32KB
-        #[cfg(all(feature = "cluster-bitmap-medium", not(feature = "cluster-bitmap-large")))]
-        { 4096 }  // 32K clusters = 128MB @ 4KB, 1GB @ 32KB
-        #[cfg(all(not(feature = "cluster-bitmap-medium"), not(feature = "cluster-bitmap-large")))]
-        { 1024 }  // 8K clusters (default) = 32MB @ 4KB, 256MB @ 32KB
+        {
+            16384
+        } // 128K clusters = 512MB @ 4KB, 4GB @ 32KB
+        #[cfg(all(
+            feature = "cluster-bitmap-medium",
+            not(feature = "cluster-bitmap-large")
+        ))]
+        {
+            4096
+        } // 32K clusters = 128MB @ 4KB, 1GB @ 32KB
+        #[cfg(all(
+            not(feature = "cluster-bitmap-medium"),
+            not(feature = "cluster-bitmap-large")
+        ))]
+        {
+            1024
+        } // 8K clusters (default) = 32MB @ 4KB, 256MB @ 32KB
     };
 
     /// Create a new cluster bitmap
@@ -93,8 +105,10 @@ impl ClusterBitmap {
     #[cfg(not(feature = "alloc"))]
     pub fn new(total_clusters: u32) -> Self {
         let max_clusters = (Self::MAX_BITMAP_SIZE * 8) as u32;
-        assert!(total_clusters <= max_clusters,
-            "Volume too large for fixed bitmap size. Enable 'alloc' feature or increase MAX_BITMAP_SIZE");
+        assert!(
+            total_clusters <= max_clusters,
+            "Volume too large for fixed bitmap size. Enable 'alloc' feature or increase MAX_BITMAP_SIZE"
+        );
 
         Self {
             bitmap: [0; Self::MAX_BITMAP_SIZE],
@@ -327,7 +341,8 @@ impl ClusterBitmap {
             total_clusters: self.total_clusters,
             free_clusters: self.free_count,
             allocated_clusters: self.total_clusters - self.free_count,
-            utilization: (self.total_clusters - self.free_count) as f32 / self.total_clusters as f32,
+            utilization: (self.total_clusters - self.free_count) as f32
+                / self.total_clusters as f32,
             fast_allocations: self.fast_allocations,
             slow_allocations: self.slow_allocations,
             #[cfg(feature = "alloc")]

@@ -142,8 +142,7 @@ mod stream_slice;
 
 pub use buf_stream::{BufStream, BufStreamError};
 pub use page_buffer::{
-    PageBuffer, PageBuffer1K, PageBuffer2K, PageBuffer4K, PageBuffer8K, PageBufferError,
-    BLOCK_SIZE,
+    BLOCK_SIZE, PageBuffer, PageBuffer1K, PageBuffer2K, PageBuffer4K, PageBuffer8K, PageBufferError,
 };
 pub use page_stream::{PageStream, PageStream2K, PageStream4K, PageStream8K, PageStreamError};
 pub use stream_slice::{StreamSlice, StreamSliceError};

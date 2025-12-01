@@ -6,9 +6,9 @@ use aligned::Aligned;
 use core::fmt::Debug;
 use core::future::Future;
 use core::marker::PhantomData;
-use crc::{Crc, NoTable, CRC_16_IBM_SDLC};
-use embassy_futures::select::{select, Either};
-use sdio_host::sd::{CardCapacity, CID, CSD, OCR, SD};
+use crc::{CRC_16_IBM_SDLC, Crc, NoTable};
+use embassy_futures::select::{Either, select};
+use sdio_host::sd::{CID, CSD, CardCapacity, OCR, SD};
 use sdio_host::{common_cmd::*, sd_cmd::*};
 
 /// CRC-7 algorithm for SD card commands.

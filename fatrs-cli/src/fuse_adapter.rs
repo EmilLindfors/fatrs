@@ -80,8 +80,14 @@ where
         drop(next); // Release lock before acquiring others
 
         // Store bidirectional mapping
-        self.inode_to_path.lock().unwrap().insert(inode, path.clone());
-        self.path_to_inode.lock().unwrap().insert(path.clone(), inode);
+        self.inode_to_path
+            .lock()
+            .unwrap()
+            .insert(inode, path.clone());
+        self.path_to_inode
+            .lock()
+            .unwrap()
+            .insert(path.clone(), inode);
 
         trace!("Allocated inode {} for path {:?}", inode, path);
         inode
@@ -111,7 +117,7 @@ where
         let size = if entry.is_dir() {
             0
         } else {
-            entry.len() as u64
+            entry.len()
         };
 
         let kind = if entry.is_dir() {
@@ -145,7 +151,8 @@ where
                     let nanos = datetime.nanosecond();
 
                     if timestamp >= 0 {
-                        return UNIX_EPOCH + Duration::from_secs(timestamp as u64)
+                        return UNIX_EPOCH
+                            + Duration::from_secs(timestamp as u64)
                             + Duration::from_nanos(nanos as u64);
                     }
                 }
@@ -171,7 +178,7 @@ where
         FileAttr {
             ino,
             size,
-            blocks: (size + 511) / 512, // Round up to 512-byte blocks
+            blocks: size.div_ceil(512), // Round up to 512-byte blocks
             atime,
             mtime,
             ctime: mtime, // FAT doesn't have true ctime, use mtime
@@ -346,9 +353,7 @@ where
             let dir = if ino == ROOT_INODE {
                 root
             } else {
-                let path_str = dir_path
-                    .to_str()
-                    .ok_or(fatrs::Error::InvalidInput)?;
+                let path_str = dir_path.to_str().ok_or(fatrs::Error::InvalidInput)?;
                 root.open_dir(path_str.trim_start_matches('/')).await?
             };
 
@@ -464,9 +469,7 @@ where
             let root = self.fs.root_dir();
 
             // Open the file
-            let path_str = file_path
-                .to_str()
-                .ok_or(fatrs::Error::InvalidInput)?;
+            let path_str = file_path.to_str().ok_or(fatrs::Error::InvalidInput)?;
             let mut file = root.open_file(path_str.trim_start_matches('/')).await?;
 
             // Seek to the requested offset
@@ -487,7 +490,11 @@ where
 
         match result {
             Ok(data) => {
-                debug!("read: successfully read {} bytes from {:?}", data.len(), file_path);
+                debug!(
+                    "read: successfully read {} bytes from {:?}",
+                    data.len(),
+                    file_path
+                );
                 reply.data(&data);
             }
             Err(e) => {
@@ -529,9 +536,7 @@ where
             let root = self.fs.root_dir();
 
             // Open the file for writing
-            let path_str = file_path
-                .to_str()
-                .ok_or(fatrs::Error::InvalidInput)?;
+            let path_str = file_path.to_str().ok_or(fatrs::Error::InvalidInput)?;
             let mut file = root.open_file(path_str.trim_start_matches('/')).await?;
 
             // Seek to the requested offset
@@ -942,14 +947,20 @@ where
                 // Update inode mappings
                 if let Some(inode) = self.get_inode(&old_path) {
                     self.path_to_inode.lock().unwrap().remove(&old_path);
-                    self.inode_to_path.lock().unwrap().insert(inode, new_path.clone());
+                    self.inode_to_path
+                        .lock()
+                        .unwrap()
+                        .insert(inode, new_path.clone());
                     self.path_to_inode.lock().unwrap().insert(new_path, inode);
                 }
 
                 reply.ok();
             }
             Err(e) => {
-                debug!("rename: failed to rename {:?} to {:?}: {:?}", old_path, new_path, e);
+                debug!(
+                    "rename: failed to rename {:?} to {:?}: {:?}",
+                    old_path, new_path, e
+                );
                 reply.error(libc::EIO);
             }
         }
@@ -994,9 +1005,7 @@ where
                 let root = self.fs.root_dir();
 
                 // Open the file
-                let path_str = file_path
-                    .to_str()
-                    .ok_or(fatrs::Error::InvalidInput)?;
+                let path_str = file_path.to_str().ok_or(fatrs::Error::InvalidInput)?;
                 let mut file = root.open_file(path_str.trim_start_matches('/')).await?;
 
                 // Seek to the new size position
@@ -1038,7 +1047,10 @@ where
                     reply.attr(&TTL, &attr);
                 }
                 Err(e) => {
-                    debug!("setattr: failed to get metadata for {:?}: {:?}", file_path, e);
+                    debug!(
+                        "setattr: failed to get metadata for {:?}: {:?}",
+                        file_path, e
+                    );
                     reply.error(libc::ENOENT);
                 }
             }

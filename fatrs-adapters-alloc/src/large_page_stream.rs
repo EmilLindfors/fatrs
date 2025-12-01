@@ -5,9 +5,9 @@
 
 extern crate alloc;
 
-use fatrs_block_device::BlockDevice;
-use fatrs_adapters_core::BLOCK_SIZE;
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
+use fatrs_adapters_core::BLOCK_SIZE;
+use fatrs_block_device::BlockDevice;
 
 use crate::large_page_buffer::{LargePageBuffer, LargePageBufferError};
 
@@ -36,7 +36,9 @@ impl<E: core::fmt::Display> core::fmt::Display for LargePageStreamError<E> {
 
 impl<E: core::fmt::Debug + core::fmt::Display> core::error::Error for LargePageStreamError<E> {}
 
-impl<E: core::fmt::Debug + core::fmt::Display> embedded_io_async::Error for LargePageStreamError<E> {
+impl<E: core::fmt::Debug + core::fmt::Display> embedded_io_async::Error
+    for LargePageStreamError<E>
+{
     fn kind(&self) -> ErrorKind {
         ErrorKind::Other
     }
@@ -95,7 +97,12 @@ impl<D: BlockDevice<BLOCK_SIZE>> LargePageStream<D> {
         if let Some(size) = self.cached_size {
             return Ok(size);
         }
-        let size = self.buffer.inner_mut().size().await.map_err(LargePageBufferError::Io)?;
+        let size = self
+            .buffer
+            .inner_mut()
+            .size()
+            .await
+            .map_err(LargePageBufferError::Io)?;
         self.cached_size = Some(size);
         Ok(size)
     }
@@ -133,7 +140,10 @@ impl<D: BlockDevice<BLOCK_SIZE>> LargePageStream<D> {
     /// Resize the internal buffer
     ///
     /// This flushes any dirty data and clears the cache.
-    pub async fn resize(&mut self, new_page_size: usize) -> Result<(), LargePageStreamError<D::Error>> {
+    pub async fn resize(
+        &mut self,
+        new_page_size: usize,
+    ) -> Result<(), LargePageStreamError<D::Error>> {
         self.buffer.flush().await?;
         self.buffer.resize(new_page_size);
         Ok(())
@@ -276,7 +286,12 @@ where
         let new_offset = match pos {
             SeekFrom::Start(offset) => offset,
             SeekFrom::End(offset) => {
-                let size = self.buffer.inner_mut().size().await.map_err(LargePageBufferError::Io)?;
+                let size = self
+                    .buffer
+                    .inner_mut()
+                    .size()
+                    .await
+                    .map_err(LargePageBufferError::Io)?;
                 if offset >= 0 {
                     size.saturating_add(offset as u64)
                 } else {
@@ -305,13 +320,19 @@ mod tests {
     use embedded_io_adapters::tokio_1::FromTokio;
     use embedded_io_async::ErrorType;
 
-    struct TestBlockDevice<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek>(T);
+    struct TestBlockDevice<
+        T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek,
+    >(T);
 
-    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek> ErrorType for TestBlockDevice<T> {
+    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek> ErrorType
+        for TestBlockDevice<T>
+    {
         type Error = T::Error;
     }
 
-    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek> BlockDevice<512> for TestBlockDevice<T> {
+    impl<T: embedded_io_async::Read + embedded_io_async::Write + embedded_io_async::Seek>
+        BlockDevice<512> for TestBlockDevice<T>
+    {
         type Error = T::Error;
         type Align = A4;
 
@@ -364,7 +385,10 @@ mod tests {
         assert_eq!(&buf, b"TEST");
 
         // Seek to second page and read
-        stream.seek(SeekFrom::Start(presets::PAGE_64K as u64)).await.unwrap();
+        stream
+            .seek(SeekFrom::Start(presets::PAGE_64K as u64))
+            .await
+            .unwrap();
         stream.read_exact(&mut buf).await.unwrap();
         assert_eq!(&buf, b"PAGE");
     }
@@ -377,13 +401,19 @@ mod tests {
         let mut stream = LargePageStream::new(block_dev, presets::PAGE_64K);
 
         // Write across page boundary
-        stream.seek(SeekFrom::Start(presets::PAGE_64K as u64 - 2)).await.unwrap();
+        stream
+            .seek(SeekFrom::Start(presets::PAGE_64K as u64 - 2))
+            .await
+            .unwrap();
         stream.write_all(b"SPAN").await.unwrap();
         stream.flush().await.unwrap();
 
         // Verify
         let inner = stream.into_inner().0.into_inner().into_inner();
-        assert_eq!(&inner[presets::PAGE_64K - 2..presets::PAGE_64K + 2], b"SPAN");
+        assert_eq!(
+            &inner[presets::PAGE_64K - 2..presets::PAGE_64K + 2],
+            b"SPAN"
+        );
     }
 
     #[tokio::test]

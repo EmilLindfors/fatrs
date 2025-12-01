@@ -12,7 +12,7 @@
 //!
 //! # Feature Presets
 //!
-//! - `embedded`: Core no_std features (lfn + fat-cache + multi-cluster-io)
+//! - `embedded`: Core `no_std` features (lfn + fat-cache + multi-cluster-io)
 //! - `desktop`: All features enabled (std + alloc + all optimizations)
 //!
 //! # Threading and Concurrency
@@ -27,7 +27,7 @@
 //! For concurrent operations, use one of these patterns:
 //!
 //! - **Single-threaded runtime**: `#[tokio::main(flavor = "current_thread")]`
-//! - **LocalSet**: Use `tokio::task::spawn_local` within a `LocalSet`
+//! - **`LocalSet`**: Use `tokio::task::spawn_local` within a `LocalSet`
 //! - **Embassy**: Works naturally (single-threaded by design)
 //!
 //! See the [`send_bounds`] module for detailed examples.
@@ -71,7 +71,10 @@
 #![crate_name = "fatrs"]
 #![cfg_attr(not(feature = "std"), no_std)]
 // Disable warnings to not clutter code with cfg too much
-#![cfg_attr(not(all(feature = "alloc", feature = "lfn")), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(all(feature = "alloc", feature = "lfn")),
+    allow(dead_code, unused_imports)
+)]
 #![warn(clippy::pedantic)]
 // #![warn(missing_docs)]
 #![allow(

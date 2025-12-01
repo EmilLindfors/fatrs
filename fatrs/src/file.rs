@@ -200,9 +200,7 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
 
         trace!(
             "Checkpoint seek: target={}, using checkpoint at index={} (saved {} cluster reads)",
-            target_cluster_index,
-            best_index,
-            best_index
+            target_cluster_index, best_index, best_index
         );
 
         (best_cluster, best_index)
@@ -221,7 +219,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
             if idx < 8 {
                 self.context.checkpoints[idx] = (cluster_index, cluster);
                 self.context.checkpoint_count += 1;
-                trace!("Recorded checkpoint: index={}, cluster={}", cluster_index, cluster);
+                trace!(
+                    "Recorded checkpoint: index={}, cluster={}",
+                    cluster_index, cluster
+                );
             }
         }
     }
@@ -388,7 +389,9 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
     pub fn close(self) -> Result<FileContext, Error<IO::Error>> {
         #[cfg(feature = "file-locking")]
         if self.lock_info.is_some() {
-            warn!("Closing locked file without calling close_and_unlock - lock will not be released");
+            warn!(
+                "Closing locked file without calling close_and_unlock - lock will not be released"
+            );
         }
 
         Ok(FileContext {
@@ -420,7 +423,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
     #[cfg(feature = "file-locking")]
     pub async fn close_and_unlock(self) -> Result<FileContext, Error<IO::Error>> {
         // Release the lock if one was held
-        if let (Some(lock_type), Some(first_cluster)) = (self.lock_info, self.context.first_cluster) {
+        if let (Some(lock_type), Some(first_cluster)) = (self.lock_info, self.context.first_cluster)
+        {
             let mut locks = self.fs.file_locks.lock().await;
             locks.unlock(first_cluster, lock_type);
         }
@@ -546,7 +550,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
                             (old_offset / cluster_size).saturating_sub(1)
                         };
 
-                        let new_cluster_index = if new_offset > 0 && new_offset % cluster_size == 0 {
+                        let new_cluster_index = if new_offset > 0 && new_offset % cluster_size == 0
+                        {
                             (new_offset / cluster_size).saturating_sub(1)
                         } else {
                             new_offset / cluster_size
@@ -594,12 +599,16 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
 
         // Original single-cluster read path
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
-        let read_size = cmp::min(cmp::min(buf.len(), bytes_left_in_cluster), bytes_left_in_file);
+        let read_size = cmp::min(
+            cmp::min(buf.len(), bytes_left_in_cluster),
+            bytes_left_in_file,
+        );
         if read_size == 0 {
             return Ok(0);
         }
         trace!("read {} bytes in cluster {}", read_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         #[allow(clippy::await_holding_refcell_ref)]
         let read_bytes = {
             let mut disk = self.fs.disk.lock().await;
@@ -661,7 +670,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                             match r {
                                 Some(Err(err)) => return Err(err),
                                 Some(Ok(next)) => Some(next),
-                                None => None,  // End of chain - fall through to single-cluster to allocate
+                                None => None, // End of chain - fall through to single-cluster to allocate
                             }
                         }
                     }
@@ -680,54 +689,56 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                     )
                     .await
                     {
-                    Ok(written_bytes) if written_bytes > 0 => {
-                        // Multi-cluster write succeeded!
-                        let written_bytes = cmp::min(written_bytes, bytes_left_until_max_file_size);
+                        Ok(written_bytes) if written_bytes > 0 => {
+                            // Multi-cluster write succeeded!
+                            let written_bytes =
+                                cmp::min(written_bytes, bytes_left_until_max_file_size);
 
-                        let old_offset = self.context.offset;
-                        self.context.offset += written_bytes as u32;
-                        let new_offset = self.context.offset;
+                            let old_offset = self.context.offset;
+                            self.context.offset += written_bytes as u32;
+                            let new_offset = self.context.offset;
 
-                        // Update current cluster to match new offset
-                        // FAT convention: when at a cluster boundary, current_cluster points to
-                        // the previous cluster (the one just finished), not the next cluster.
-                        let old_cluster_index = if old_offset == 0 {
-                            0u32
-                        } else {
-                            (old_offset / cluster_size).saturating_sub(1)
-                        };
+                            // Update current cluster to match new offset
+                            // FAT convention: when at a cluster boundary, current_cluster points to
+                            // the previous cluster (the one just finished), not the next cluster.
+                            let old_cluster_index = if old_offset == 0 {
+                                0u32
+                            } else {
+                                (old_offset / cluster_size).saturating_sub(1)
+                            };
 
-                        let new_cluster_index = if new_offset > 0 && new_offset % cluster_size == 0 {
-                            (new_offset / cluster_size).saturating_sub(1)
-                        } else {
-                            new_offset / cluster_size
-                        };
-
-                        let cluster_delta = new_cluster_index.saturating_sub(old_cluster_index);
-
-                        if cluster_delta > 0 {
-                            let mut cluster = current_cluster;
-                            for _i in 0..cluster_delta {
-                                let mut iter = self.fs.cluster_iter(cluster);
-                                if let Some(Ok(next)) = iter.next().await {
-                                    cluster = next;
-                                    // Record checkpoint during sequential write traversal
-                                    #[cfg(feature = "cluster-checkpoints")]
-                                    {
-                                        let cluster_idx = old_cluster_index + _i + 1;
-                                        self.record_checkpoint(cluster_idx, cluster);
-                                    }
+                            let new_cluster_index =
+                                if new_offset > 0 && new_offset % cluster_size == 0 {
+                                    (new_offset / cluster_size).saturating_sub(1)
                                 } else {
-                                    break;
-                                }
-                            }
-                            self.context.current_cluster = Some(cluster);
-                        }
+                                    new_offset / cluster_size
+                                };
 
-                        self.update_dir_entry_after_write();
-                        trace!("multi-cluster write: {} bytes", written_bytes);
-                        return Ok(written_bytes);
-                    }
+                            let cluster_delta = new_cluster_index.saturating_sub(old_cluster_index);
+
+                            if cluster_delta > 0 {
+                                let mut cluster = current_cluster;
+                                for _i in 0..cluster_delta {
+                                    let mut iter = self.fs.cluster_iter(cluster);
+                                    if let Some(Ok(next)) = iter.next().await {
+                                        cluster = next;
+                                        // Record checkpoint during sequential write traversal
+                                        #[cfg(feature = "cluster-checkpoints")]
+                                        {
+                                            let cluster_idx = old_cluster_index + _i + 1;
+                                            self.record_checkpoint(cluster_idx, cluster);
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                self.context.current_cluster = Some(cluster);
+                            }
+
+                            self.update_dir_entry_after_write();
+                            trace!("multi-cluster write: {} bytes", written_bytes);
+                            return Ok(written_bytes);
+                        }
                         _ => {
                             // Fall through to single-cluster write
                             trace!("falling back to single-cluster write");
@@ -781,7 +792,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
             }
         };
         trace!("write {} bytes in cluster {}", write_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         #[allow(clippy::await_holding_refcell_ref)]
         let written_bytes = {
             let mut disk = self.fs.disk.lock().await;
@@ -836,9 +848,7 @@ impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC> {
         }
         trace!(
             "file seek {} -> {} - entry {:?}",
-            self.context.offset,
-            new_offset,
-            self.context.entry
+            self.context.offset, new_offset, self.context.entry
         );
         if new_offset == self.context.offset {
             // position is the same - nothing to do

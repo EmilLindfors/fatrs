@@ -157,11 +157,17 @@ impl FileLockManager {
         if let Some(state) = self.locks.get_mut(&cluster) {
             match lock_type {
                 LockType::Shared => {
-                    debug_assert!(state.readers > 0, "Tried to unlock shared lock that wasn't held");
+                    debug_assert!(
+                        state.readers > 0,
+                        "Tried to unlock shared lock that wasn't held"
+                    );
                     state.readers = state.readers.saturating_sub(1);
                 }
                 LockType::Exclusive => {
-                    debug_assert!(state.exclusive, "Tried to unlock exclusive lock that wasn't held");
+                    debug_assert!(
+                        state.exclusive,
+                        "Tried to unlock exclusive lock that wasn't held"
+                    );
                     state.exclusive = false;
                 }
             }

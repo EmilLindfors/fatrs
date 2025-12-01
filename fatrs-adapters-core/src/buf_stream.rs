@@ -1,6 +1,6 @@
 use aligned::Aligned;
-use fatrs_block_device::{slice_to_blocks, slice_to_blocks_mut, BlockDevice};
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
+use fatrs_block_device::{BlockDevice, slice_to_blocks, slice_to_blocks_mut};
 
 crate::define_adapter_error! {
     /// Error type for BufStream operations
@@ -130,9 +130,7 @@ where
                 let block_end = block_start + SIZE as u64;
                 trace!(
                     "offset {}, block_start {}, block_end {}",
-                    self.current_offset,
-                    block_start,
-                    block_end
+                    self.current_offset, block_start, block_end
                 );
 
                 self.check_cache().await?;
@@ -182,9 +180,7 @@ where
                 let block_end = block_start + SIZE as u64;
                 trace!(
                     "offset {}, block_start {}, block_end {}",
-                    self.current_offset,
-                    block_start,
-                    block_end
+                    self.current_offset, block_start, block_end
                 );
 
                 // reload the cache if we need to

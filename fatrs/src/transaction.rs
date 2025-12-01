@@ -32,9 +32,9 @@
 //! - Aerospace applications
 //! - Any safety-critical embedded system
 
-use core::fmt::Debug;
 use crate::error::Error;
 use crate::io::{Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
+use core::fmt::Debug;
 
 /// Maximum number of concurrent transactions that can be logged
 const MAX_TRANSACTIONS: usize = 4;
@@ -43,7 +43,7 @@ const MAX_TRANSACTIONS: usize = 4;
 const TRANSACTION_ENTRY_SIZE: usize = 512;
 
 /// Magic number to identify valid transaction log
-const TRANSACTION_MAGIC: u32 = 0x54584E46; // "TXNF"
+const TRANSACTION_MAGIC: u32 = 0x5458_4E46; // "TXNF"
 
 /// Transaction log version
 const TRANSACTION_VERSION: u16 = 1;
@@ -185,10 +185,10 @@ impl TransactionEntry {
     pub async fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error<R::Error>> {
         let magic = reader.read_u32_le().await?;
         let version = reader.read_u16_le().await?;
-        let tx_type = TransactionType::from_u8(reader.read_u8().await?)
-            .ok_or(Error::CorruptedFileSystem)?;
-        let state = TransactionState::from_u8(reader.read_u8().await?)
-            .ok_or(Error::CorruptedFileSystem)?;
+        let tx_type =
+            TransactionType::from_u8(reader.read_u8().await?).ok_or(Error::CorruptedFileSystem)?;
+        let state =
+            TransactionState::from_u8(reader.read_u8().await?).ok_or(Error::CorruptedFileSystem)?;
         let sequence = reader.read_u32_le().await?;
         let timestamp = reader.read_u64_le().await?;
         let sector_count = reader.read_u16_le().await?;
@@ -226,7 +226,7 @@ impl TransactionEntry {
 
     /// Calculate CRC32 checksum of entry data using the `crc` crate.
     pub fn calculate_crc32(&self) -> u32 {
-        use crc::{Crc, CRC_32_ISO_HDLC};
+        use crc::{CRC_32_ISO_HDLC, Crc};
 
         const CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
         let mut digest = CRC32.digest();
@@ -370,7 +370,10 @@ impl TransactionLog {
         affected_sectors: &[u32],
     ) -> Option<usize> {
         // Find an empty slot
-        let slot = self.entries.iter().position(|e| e.state == TransactionState::Empty)?;
+        let slot = self
+            .entries
+            .iter()
+            .position(|e| e.state == TransactionState::Empty)?;
 
         let entry = &mut self.entries[slot];
         entry.tx_type = tx_type;
@@ -468,13 +471,10 @@ impl TransactionLog {
 
     /// Get all pending or in-progress transactions (for recovery)
     pub fn get_incomplete_transactions(&self) -> impl Iterator<Item = (usize, &TransactionEntry)> {
-        self.entries
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| {
-                e.is_valid()
-                    && (e.state == TransactionState::Pending || e.state == TransactionState::InProgress)
-            })
+        self.entries.iter().enumerate().filter(|(_, e)| {
+            e.is_valid()
+                && (e.state == TransactionState::Pending || e.state == TransactionState::InProgress)
+        })
     }
 }
 
