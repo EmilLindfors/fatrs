@@ -3,7 +3,6 @@
 use anyhow::Result;
 use clap::Parser;
 
-mod block_device;
 mod cli;
 
 #[tokio::main]

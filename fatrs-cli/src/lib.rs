@@ -1,10 +1,11 @@
 //! fatrs-cli library
 //!
-//! This library provides FUSE mounting capabilities for fatrs,
-//! enabling FAT images to be mounted with transaction-safe support.
+//! Re-exports for CLI utilities.
 
-#[cfg(all(unix, feature = "fuse"))]
-pub mod fuse_adapter;
+// Re-export FUSE adapter from fatrs-fuse
+#[cfg(any(feature = "unix-fuse", feature = "windows-fuse"))]
+pub use fatrs_fuse::FuseAdapter;
 
-#[cfg(all(unix, feature = "fuse"))]
-pub use fuse_adapter::FuseAdapter;
+// Re-export from fatrs-block-platform
+#[cfg(windows)]
+pub use fatrs_block_platform::{AsyncWindowsDevice, WindowsDevice, list_removable_drives};

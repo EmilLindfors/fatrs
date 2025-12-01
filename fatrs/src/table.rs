@@ -710,6 +710,7 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    #[allow(clippy::too_many_lines)]
     async fn test_fat<S: Read + Write + Seek + IoBase>(fat_type: FatType, mut cur: S) {
         // based on cluster maps from Wikipedia:
         // https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#Cluster_map

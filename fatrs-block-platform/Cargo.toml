@@ -1,0 +1,61 @@
+[package]
+name = "fatrs-block-platform"
+version = "0.4.0"
+edition = "2024"
+authors = ["Emil Lindfors"]
+description = "Platform-specific BlockDevice implementations for fatrs - embedded SPI, Windows, Linux, macOS"
+license = "MIT"
+repository = "https://github.com/EmilLindfors/fatrs"
+keywords = ["fat", "filesystem", "embedded", "block-device", "storage"]
+categories = ["embedded", "filesystem", "hardware-support", "no-std"]
+rust-version = "1.85"
+
+[dependencies]
+# Core dependencies
+fatrs-block-device = { path = "../fatrs-block-device" }
+aligned = "0.4.2"
+
+# Embedded SPI dependencies (no_std)
+embedded-hal-async = { version = "1", optional = true }
+embedded-hal = { version = "1", optional = true }
+sdio-host = { version = "0.9.0", optional = true }
+embassy-futures = { version = "0.1.1", optional = true }
+crc = { version = "3.4", optional = true, default-features = false }
+
+# Async runtime (for Windows/Linux)
+embedded-io-async = { version = "0.7", optional = true }
+embedded-io = { version = "0.7", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+anyhow = { version = "1", optional = true }
+
+# Windows dependencies
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_SystemServices", "Win32_System_IO"], optional = true }
+
+# Unix/Linux dependencies
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
+nix = { version = "0.29", features = ["fs", "ioctl"], optional = true }
+
+# Logging support (optional)
+log = { version = "0.4", optional = true }
+defmt = { version = "0.3", optional = true }
+
+[features]
+default = []
+
+# Platform features
+sdspi = ["embedded-hal-async", "embedded-hal", "sdio-host", "embassy-futures", "crc"]
+windows = ["dep:windows", "embedded-io-async", "embedded-io", "tokio", "anyhow", "std"]
+linux = ["nix", "libc", "embedded-io-async", "embedded-io", "tokio", "std"]
+macos = ["nix", "libc", "embedded-io-async", "embedded-io", "tokio", "std"]
+
+# Logging features
+logging = ["log"]
+defmt-logging = ["defmt"]
+
+# std support
+std = ["embedded-io?/std", "embedded-io-async?/std"]
+
+[package.metadata.docs.rs]
+all-features = true

@@ -1,6 +1,6 @@
 [package]
 name = "fatrs-cli"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["Emil Lindfors"]
 description = "CLI tools for fatrs - command-line utilities, TUI browser, and FUSE mount"
@@ -16,6 +16,8 @@ fatrs = { path = "../fatrs", features = ["transaction-safe", "std", "alloc", "lf
 fatrs-adapters-core = { path = "../fatrs-adapters-core", features = ["std"] }
 fatrs-adapters-alloc = { path = "../fatrs-adapters-alloc" }
 fatrs-block-device = { path = "../fatrs-block-device" }
+fatrs-block-platform = { path = "../fatrs-block-platform", features = ["windows"] }
+fatrs-fuse = { path = "../fatrs-fuse", optional = true }
 
 # I/O adapters
 embedded-io-adapters = { version = "0.7", features = ["tokio-1"] }
@@ -35,20 +37,18 @@ chrono = "0.4"
 # TUI dependencies
 ratatui = "0.29"
 crossterm = "0.28"
+image = "0.25"
+ratatui-image = "1.0"
 
-# FUSE support (Unix-like systems)
-[target.'cfg(unix)'.dependencies]
-fuser = { version = "0.14", optional = true }
-libc = { version = "0.2", optional = true }
-
-# Windows FUSE support (WinFsp) - optional, requires WinFsp installed
+# Windows dependencies
 [target.'cfg(windows)'.dependencies]
-winfsp = { version = "0.11", optional = true }
+windows = { version = "0.58", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_SystemServices", "Win32_System_IO"] }
 
 [features]
-default = ["fuse"]
-fuse = ["dep:fuser", "dep:libc"]
-windows-fuse = ["winfsp"]
+default = []
+fuse = ["fatrs-fuse"]
+unix-fuse = ["fuse", "fatrs-fuse/unix-fuse"]
+windows-fuse = ["fuse", "fatrs-fuse/windows-fuse"]
 
 [[bin]]
 name = "fatrs"
@@ -61,4 +61,4 @@ path = "src/tui_main.rs"
 [[bin]]
 name = "fatrs-mount"
 path = "src/mount_main.rs"
-required-features = ["fuse"]
+required-features = ["unix-fuse"]

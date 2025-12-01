@@ -32,6 +32,11 @@
 //! - Aerospace applications
 //! - Any safety-critical embedded system
 
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::doc_markdown)]
+#![allow(dead_code)]
+
 use crate::error::Error;
 use crate::io::{Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use core::fmt::Debug;
@@ -503,7 +508,7 @@ mod tests {
     fn test_transaction_entry_invalid_crc() {
         let mut entry = TransactionEntry::new();
         entry.tx_type = TransactionType::FatUpdate;
-        entry.crc32 = 0x12345678; // Wrong CRC
+        entry.crc32 = 0x1234_5678; // Wrong CRC
 
         assert!(!entry.verify_crc32());
         assert!(!entry.is_valid());

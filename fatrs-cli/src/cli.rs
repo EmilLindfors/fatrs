@@ -9,8 +9,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use embedded_io_adapters::tokio_1::FromTokio;
 use fatrs::{FatType, FormatVolumeOptions, FsOptions};
 use fatrs_adapters_alloc::{LargePageStream, presets};
-
-use crate::block_device::StreamBlockDevice;
+use fatrs_block_platform::StreamBlockDevice;
 
 /// Page size presets for I/O buffering
 #[derive(Copy, Clone, Debug, Default, ValueEnum)]
@@ -179,6 +178,69 @@ pub enum Command {
         /// Destination directory
         dest: PathBuf,
     },
+
+    /// Work with physical flash drives (Windows only)
+    #[cfg(windows)]
+    Flash {
+        #[command(subcommand)]
+        command: FlashCommand,
+    },
+}
+
+#[cfg(windows)]
+#[derive(Subcommand, Debug)]
+pub enum FlashCommand {
+    /// List available removable drives
+    List,
+
+    /// List files on a flash drive
+    Ls {
+        /// Device path (e.g., D: or \\\\.\\D:)
+        device: String,
+
+        /// Path within the filesystem (default: root)
+        #[arg(default_value = "/")]
+        path: String,
+
+        /// Show detailed information (long format)
+        #[arg(short, long)]
+        long: bool,
+
+        /// Recursively list all files
+        #[arg(short = 'R', long)]
+        recursive: bool,
+    },
+
+    /// Display filesystem information
+    Info {
+        /// Device path (e.g., D: or \\\\.\\D:)
+        device: String,
+    },
+
+    /// Display contents of a file
+    Cat {
+        /// Device path (e.g., D: or \\\\.\\D:)
+        device: String,
+
+        /// Path to file within the filesystem
+        path: String,
+    },
+
+    /// Copy files from flash drive to host
+    Cp {
+        /// Device path (e.g., D: or \\\\.\\D:)
+        device: String,
+
+        /// Source path within the filesystem
+        source: String,
+
+        /// Destination path on host
+        dest: PathBuf,
+
+        /// Recursively copy directories
+        #[arg(short, long)]
+        recursive: bool,
+    },
 }
 
 /// Parse size string like "32M", "1G", "512K"
@@ -292,6 +354,8 @@ pub async fn run(cli: Cli) -> Result<()> {
             .await
         }
         Command::Extract { image, dest } => cmd_extract(&image, &dest, page_size).await,
+        #[cfg(windows)]
+        Command::Flash { command } => cmd_flash(command, page_size).await,
     }
 }
 
@@ -892,4 +956,164 @@ async fn cmd_extract(image: &Path, dest: &Path, page_size: usize) -> Result<()> 
     println!("Done.");
 
     Ok(())
+}
+
+#[cfg(windows)]
+async fn cmd_flash(command: FlashCommand, page_size: usize) -> Result<()> {
+    match command {
+        FlashCommand::List => cmd_flash_list().await,
+        FlashCommand::Ls {
+            device,
+            path,
+            long,
+            recursive,
+        } => {
+            let (fs, _) = open_flash_device(&device, false, page_size).await?;
+            let root = fs.root_dir();
+            let path = path.trim_start_matches('/');
+
+            let dir = if path.is_empty() {
+                root
+            } else {
+                root.open_dir(path)
+                    .await
+                    .with_context(|| format!("Failed to open directory: {}", path))?
+            };
+
+            list_directory(&dir, path, long, recursive, 0).await
+        }
+        FlashCommand::Info { device } => {
+            let (fs, effective_page_size) = open_flash_device(&device, false, page_size).await?;
+
+            let stats = fs.stats().await?;
+
+            println!("FAT Filesystem Information");
+            println!("==========================");
+            println!("Device:          {}", device);
+            println!("FAT type:        {:?}", fs.fat_type());
+            println!(
+                "Volume label:    {}",
+                String::from_utf8_lossy(fs.volume_label_as_bytes()).trim()
+            );
+            println!("Volume ID:       {:08X}", fs.volume_id());
+            println!("Cluster size:    {} bytes", stats.cluster_size());
+            println!("Total clusters:  {}", stats.total_clusters());
+            println!("Free clusters:   {}", stats.free_clusters());
+            println!(
+                "Total space:     {} bytes ({:.1} MB)",
+                stats.total_clusters() as u64 * stats.cluster_size() as u64,
+                (stats.total_clusters() as f64 * stats.cluster_size() as f64) / (1024.0 * 1024.0)
+            );
+            println!(
+                "Free space:      {} bytes ({:.1} MB)",
+                stats.free_clusters() as u64 * stats.cluster_size() as u64,
+                (stats.free_clusters() as f64 * stats.cluster_size() as f64) / (1024.0 * 1024.0)
+            );
+            println!("I/O buffer:      {} bytes", effective_page_size);
+
+            Ok(())
+        }
+        FlashCommand::Cat { device, path } => {
+            let (fs, _) = open_flash_device(&device, false, page_size).await?;
+
+            let root = fs.root_dir();
+            let path = path.trim_start_matches('/');
+
+            let mut fat_file = root
+                .open_file(path)
+                .await
+                .with_context(|| format!("Failed to open file: {}", path))?;
+
+            use embedded_io_async::Read;
+            use std::io::Write;
+
+            let mut buffer = [0u8; 8192];
+            let mut stdout = std::io::stdout();
+
+            loop {
+                let n = fat_file.read(&mut buffer).await?;
+                if n == 0 {
+                    break;
+                }
+                stdout.write_all(&buffer[..n])?;
+            }
+
+            Ok(())
+        }
+        FlashCommand::Cp {
+            device,
+            source,
+            dest,
+            recursive,
+        } => {
+            let (fs, _) = open_flash_device(&device, false, page_size).await?;
+
+            let root = fs.root_dir();
+            let src_path = source.trim_start_matches('/');
+
+            copy_from_image(&root, src_path, &dest, recursive).await
+        }
+    }
+}
+
+#[cfg(windows)]
+async fn cmd_flash_list() -> Result<()> {
+    use fatrs_cli::list_removable_drives;
+
+    let drives = list_removable_drives().await?;
+
+    if drives.is_empty() {
+        println!("No removable drives found.");
+        return Ok(());
+    }
+
+    println!("Available Removable Drives:");
+    println!("===========================");
+
+    for drive in drives {
+        println!("\nDrive:       {}", drive.letter);
+        println!("Device path: {}", drive.device_path);
+        if let Some(label) = &drive.label {
+            println!("Label:       {}", label);
+        }
+        if drive.size > 0 {
+            println!(
+                "Size:        {} bytes ({:.2} GB)",
+                drive.size,
+                drive.size as f64 / (1024.0 * 1024.0 * 1024.0)
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+async fn open_flash_device(
+    device: &str,
+    writable: bool,
+    page_size: usize,
+) -> Result<(
+    fatrs::FileSystem<
+        LargePageStream<StreamBlockDevice<fatrs_cli::AsyncWindowsDevice>>,
+        fatrs::DefaultTimeProvider,
+        fatrs::LossyOemCpConverter,
+    >,
+    usize,
+)> {
+    use fatrs_adapters_alloc::LargePageStream;
+    use fatrs_block_platform::StreamBlockDevice;
+
+    let windows_device = fatrs_cli::AsyncWindowsDevice::open(device, writable)
+        .await
+        .with_context(|| format!("Failed to open device: {}", device))?;
+
+    let block_dev = StreamBlockDevice(windows_device);
+    let stream = LargePageStream::new(block_dev, page_size);
+
+    let fs = fatrs::FileSystem::new(stream, FsOptions::new())
+        .await
+        .context("Failed to mount FAT filesystem")?;
+
+    Ok((fs, page_size))
 }

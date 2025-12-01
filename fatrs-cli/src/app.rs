@@ -7,10 +7,12 @@ use tokio::runtime::Handle;
 
 /// Current view mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum View {
     Browser,
     FileContent,
     HexView,
+    ImageView,
     Help,
 }
 
@@ -27,6 +29,7 @@ pub enum InputAction {
     CreateFile,
     CreateDir,
     Rename,
+    Export,
 }
 
 /// Represents a file or directory entry
@@ -75,6 +78,8 @@ where
     pub scroll_offset: usize,
     /// Total lines in content
     pub total_lines: usize,
+    /// Image data for image view
+    pub image_data: Option<image::DynamicImage>,
     /// Message to display
     pub message: Option<String>,
 }
@@ -105,6 +110,7 @@ where
             viewing_file: None,
             scroll_offset: 0,
             total_lines: 0,
+            image_data: None,
             message: None,
         })
     }
@@ -231,6 +237,9 @@ where
     pub fn enter_selected(&mut self) -> Result<()> {
         if let Some(entry) = self.get_selected_entry().cloned() {
             if entry.is_dir {
+                // Clear any viewed content when entering a directory
+                self.clear_view_data();
+                self.view = View::Browser;
                 self.current_path.push(entry.name);
                 self.load_current_directory()?;
             } else {
@@ -243,6 +252,9 @@ where
     /// Go to parent directory
     pub fn go_parent(&mut self) -> Result<()> {
         if !self.current_path.is_empty() {
+            // Clear any viewed content when going to parent
+            self.clear_view_data();
+            self.view = View::Browser;
             self.current_path.pop();
             self.load_current_directory()?;
         }
@@ -290,15 +302,51 @@ where
             match content_result {
                 Ok(bytes) => {
                     self.file_bytes = Some(bytes.clone());
-                    self.file_content = Some(String::from_utf8_lossy(&bytes).to_string());
-                    self.viewing_file = Some(entry.name);
-                    self.scroll_offset = 0;
-                    self.total_lines = self
-                        .file_content
-                        .as_ref()
-                        .map(|c| c.lines().count())
-                        .unwrap_or(0);
-                    self.view = View::FileContent;
+
+                    // Check if this is an image file
+                    let filename_lower = entry.name.to_lowercase();
+                    let is_image = filename_lower.ends_with(".jpg")
+                        || filename_lower.ends_with(".jpeg")
+                        || filename_lower.ends_with(".png")
+                        || filename_lower.ends_with(".gif")
+                        || filename_lower.ends_with(".bmp");
+
+                    if is_image {
+                        // Try to decode as image
+                        match image::load_from_memory(&bytes) {
+                            Ok(img) => {
+                                self.image_data = Some(img);
+                                self.viewing_file = Some(entry.name);
+                                self.scroll_offset = 0;
+                                self.view = View::ImageView;
+                            }
+                            Err(e) => {
+                                // If image decode fails, show as text
+                                self.file_content =
+                                    Some(String::from_utf8_lossy(&bytes).to_string());
+                                self.viewing_file = Some(entry.name);
+                                self.scroll_offset = 0;
+                                self.total_lines = self
+                                    .file_content
+                                    .as_ref()
+                                    .map(|c| c.lines().count())
+                                    .unwrap_or(0);
+                                self.view = View::FileContent;
+                                self.message = Some(format!("Failed to decode image: {:?}", e));
+                            }
+                        }
+                    } else {
+                        // Regular text file
+                        self.file_content = Some(String::from_utf8_lossy(&bytes).to_string());
+                        self.viewing_file = Some(entry.name);
+                        self.scroll_offset = 0;
+                        self.total_lines = self
+                            .file_content
+                            .as_ref()
+                            .map(|c| c.lines().count())
+                            .unwrap_or(0);
+                        self.view = View::FileContent;
+                    }
                 }
                 Err(e) => {
                     self.message = Some(format!("Error reading file: {:?}", e));
@@ -331,6 +379,16 @@ where
             View::Help => View::Browser,
             _ => View::Help,
         };
+    }
+
+    /// Clear view data when returning to browser
+    pub fn clear_view_data(&mut self) {
+        self.file_content = None;
+        self.file_bytes = None;
+        self.image_data = None;
+        self.viewing_file = None;
+        self.scroll_offset = 0;
+        self.total_lines = 0;
     }
 
     /// Scroll up in content view
@@ -400,6 +458,25 @@ where
         }
     }
 
+    /// Start exporting selected file to local disk
+    pub fn start_export(&mut self) {
+        let entry_info = self
+            .get_selected_entry()
+            .map(|e| (e.name.clone(), e.is_dir));
+        if let Some((name, is_dir)) = entry_info {
+            if is_dir {
+                self.message =
+                    Some("Cannot export directories (yet). Use CLI: fatrs flash cp".to_string());
+                return;
+            }
+            self.input_mode = InputMode::Input;
+            self.input_action = Some(InputAction::Export);
+            self.input_prompt = format!("Export '{}' to: ", name);
+            // Default to current directory with same filename
+            self.input_buffer = format!("./{}", name);
+        }
+    }
+
     /// Cancel input mode
     pub fn cancel_input(&mut self) {
         self.input_mode = InputMode::Normal;
@@ -421,6 +498,7 @@ where
             Some(InputAction::CreateFile) => self.create_file(&name)?,
             Some(InputAction::CreateDir) => self.create_dir(&name)?,
             Some(InputAction::Rename) => self.rename_selected(&name)?,
+            Some(InputAction::Export) => self.export_file(&name)?,
             None => {}
         }
 
@@ -559,6 +637,85 @@ where
             }
 
             self.load_current_directory()?;
+        }
+
+        Ok(())
+    }
+
+    /// Export/copy a file to local disk
+    fn export_file(&mut self, dest_path: &str) -> Result<()> {
+        let entry_info = self.get_selected_entry().cloned();
+        if let Some(entry) = entry_info {
+            if entry.is_dir {
+                self.message =
+                    Some("Cannot export directories (use CLI for recursive copy)".to_string());
+                return Ok(());
+            }
+
+            let source_path = if self.current_path.is_empty() {
+                entry.name.clone()
+            } else {
+                format!("{}/{}", self.current_path.join("/"), entry.name)
+            };
+
+            let entry_name = entry.name.clone();
+            let dest_path_owned = dest_path.to_string();
+
+            let result: Result<(), String> = self.runtime.block_on(async {
+                use embedded_io_async::Read;
+                use std::io::Write;
+
+                // Read file from FAT filesystem
+                let root = self.fs.root_dir();
+                let mut file = root
+                    .open_file(&source_path)
+                    .await
+                    .map_err(|e| format!("Failed to open source: {:?}", e))?;
+
+                // Create destination file
+                let mut dest_file = std::fs::File::create(&dest_path_owned)
+                    .map_err(|e| format!("Failed to create destination: {:?}", e))?;
+
+                // Use 512KB chunks for optimal performance
+                const CHUNK_SIZE: usize = 512 * 1024;
+                let mut chunk = vec![0u8; CHUNK_SIZE];
+                let mut total_bytes = 0usize;
+
+                loop {
+                    let n = file.read(&mut chunk).await.map_err(|e| {
+                        format!("Failed to read at offset {}: {:?}", total_bytes, e)
+                    })?;
+                    if n == 0 {
+                        break;
+                    }
+
+                    // Write incrementally to avoid accumulating everything in memory
+                    dest_file.write_all(&chunk[..n]).map_err(|e| {
+                        format!("Failed to write at offset {}: {:?}", total_bytes, e)
+                    })?;
+
+                    total_bytes += n;
+                }
+
+                // Ensure all data is flushed to disk
+                dest_file
+                    .flush()
+                    .map_err(|e| format!("Failed to flush: {:?}", e))?;
+
+                Ok(())
+            });
+
+            match result {
+                Ok(_) => {
+                    self.message = Some(format!(
+                        "Exported '{}' to '{}'",
+                        entry_name, dest_path_owned
+                    ));
+                }
+                Err(e) => {
+                    self.message = Some(format!("Export failed: {}", e));
+                }
+            }
         }
 
         Ok(())

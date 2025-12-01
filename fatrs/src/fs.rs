@@ -1,3 +1,9 @@
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::items_after_statements)]
+#![allow(clippy::if_not_else)]
+#![allow(clippy::missing_errors_doc)]
+
 use async_lock::Mutex;
 use core::borrow::BorrowMut;
 use core::char;

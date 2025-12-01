@@ -7,7 +7,7 @@ members = [
     "fatrs-adapters-core",
     "fatrs-adapters-alloc",
     "fatrs-cli",
-    "fatrs-sdspi",
+    "fatrs-block-platform", "fatrs-fuse",
 ]
 # exclude embedded examples because cargo doesn't do well with multi-arch workspaces
 exclude = ["examples/esp32c6", "examples/rp2040"]

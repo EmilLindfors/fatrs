@@ -100,7 +100,7 @@ async fn main(_spawner: Spawner) {
 ### Desktop (all optimizations)
 ```toml
 [dependencies]
-fatrs = { version = "0.3", features = ["desktop"] }
+fatrs = { version = "0.4", features = ["desktop"] }
 ```
 Includes: `std`, `alloc`, `lfn`, `unicode`, `log`, `time-provider`, `fat-cache`, `multi-cluster-io`, `cluster-bitmap-medium`, `file-locking`, `send`
 
@@ -109,7 +109,7 @@ Includes: `std`, `alloc`, `lfn`, `unicode`, `log`, `time-provider`, `fat-cache`,
 ### Embedded (no_std optimized)
 ```toml
 [dependencies]
-fatrs = { version = "0.3", default-features = false, features = ["embedded"] }
+fatrs = { version = "0.4", default-features = false, features = ["embedded"] }
 ```
 Includes: `lfn`, `fat-cache`, `multi-cluster-io`
 
@@ -118,7 +118,7 @@ Includes: `lfn`, `fat-cache`, `multi-cluster-io`
 ### Minimal (ultra-constrained)
 ```toml
 [dependencies]
-fatrs = { version = "0.3", default-features = false, features = ["lfn"] }
+fatrs = { version = "0.4", default-features = false, features = ["lfn"] }
 ```
 
 **Use case**: Resource-constrained microcontrollers with <16KB RAM
@@ -126,7 +126,7 @@ fatrs = { version = "0.3", default-features = false, features = ["lfn"] }
 ### Safety-Critical
 ```toml
 [dependencies]
-fatrs = { version = "0.3", features = ["std", "transaction-safe", "file-locking", "dirty-file-panic"] }
+fatrs = { version = "0.4", features = ["std", "transaction-safe", "file-locking", "dirty-file-panic"] }
 ```
 
 **Use case**: Medical, automotive, aerospace applications requiring power-loss resilience

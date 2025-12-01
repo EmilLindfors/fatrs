@@ -276,8 +276,8 @@ impl TimeProvider for TimeTimeProvider {
         #[allow(clippy::cast_sign_loss)]
         Date::new(
             now.year() as u16,
-            u8::from(now.month()) as u16,
-            now.day() as u16,
+            u16::from(u8::from(now.month())),
+            u16::from(now.day()),
         )
     }
 
@@ -288,13 +288,13 @@ impl TimeProvider for TimeTimeProvider {
         DateTime::new(
             Date::new(
                 now.year() as u16,
-                u8::from(now.month()) as u16,
-                now.day() as u16,
+                u16::from(u8::from(now.month())),
+                u16::from(now.day()),
             ),
             Time::new(
-                now.hour() as u16,
-                now.minute() as u16,
-                now.second() as u16,
+                u16::from(now.hour()),
+                u16::from(now.minute()),
+                u16::from(now.second()),
                 (now.nanosecond() / 1_000_000) as u16,
             ),
         )
