@@ -57,7 +57,6 @@ where
     /// Create a new streaming page buffer.
     ///
     /// The page size is determined by `N * BLOCK_SIZE`.
-    #[cfg(feature = "alloc")]
     pub fn new(device: D) -> Self {
         Self {
             buffer: StackBuffer::new(device),
@@ -71,7 +70,6 @@ where
     /// Returns the number of bytes read.
     ///
     /// Note: This method is internal. Users should use the `embedded_io_async::Read` trait.
-    #[cfg(feature = "alloc")]
     pub(crate) async fn read(&mut self, buf: &mut [u8]) -> Result<usize, StreamError<D::Error>> {
         if buf.is_empty() {
             return Ok(0);
@@ -113,7 +111,6 @@ where
     /// Returns the number of bytes written.
     ///
     /// Note: This method is internal. Users should use the `embedded_io_async::Write` trait.
-    #[cfg(feature = "alloc")]
     pub(crate) async fn write(&mut self, buf: &[u8]) -> Result<usize, StreamError<D::Error>> {
         if buf.is_empty() {
             return Ok(0);
@@ -152,7 +149,6 @@ where
     /// Flush any uncommitted changes to storage.
     ///
     /// Note: This method is internal. Users should use the `embedded_io_async::Write` trait.
-    #[cfg(feature = "alloc")]
     pub(crate) async fn flush(&mut self) -> Result<(), StreamError<D::Error>> {
         self.buffer.flush().await.map_err(|e| match e {
             AdapterError::Storage(s) => StreamError::Storage(s),
@@ -165,7 +161,6 @@ where
     /// Returns the new position from the start of the stream.
     ///
     /// Note: This method is internal. Users should use the `embedded_io_async::Seek` trait.
-    #[cfg(feature = "alloc")]
     pub(crate) async fn seek(&mut self, pos: SeekFrom) -> Result<u64, StreamError<D::Error>> {
         // Flush before seeking to ensure data consistency
         self.flush().await?;
@@ -205,7 +200,6 @@ where
     }
 
     /// Get the size of the underlying storage in bytes.
-    #[cfg(feature = "alloc")]
     pub async fn size(&mut self) -> Result<u64, StreamError<D::Error>> {
         self.buffer.size().await.map_err(|e| match e {
             AdapterError::Storage(s) => StreamError::Storage(s),

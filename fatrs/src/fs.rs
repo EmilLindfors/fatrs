@@ -10,7 +10,7 @@ use core::char;
 use core::cmp;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use portable_atomic::{AtomicU8, AtomicU64, Ordering};
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;

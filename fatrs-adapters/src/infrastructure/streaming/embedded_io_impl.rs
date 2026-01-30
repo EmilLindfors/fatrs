@@ -31,7 +31,6 @@ where
     type Error = StreamError<D::Error>;
 }
 
-#[cfg(feature = "alloc")]
 impl<D, const N: usize, const BLOCK_SIZE: usize> embedded_io_async::Read for StackPageStream<D, N, BLOCK_SIZE>
 where
     D: BlockDevice<BLOCK_SIZE> + Send + Sync,
@@ -42,7 +41,6 @@ where
     }
 }
 
-#[cfg(feature = "alloc")]
 impl<D, const N: usize, const BLOCK_SIZE: usize> embedded_io_async::Write for StackPageStream<D, N, BLOCK_SIZE>
 where
     D: BlockDevice<BLOCK_SIZE> + Send + Sync,
@@ -57,7 +55,6 @@ where
     }
 }
 
-#[cfg(feature = "alloc")]
 impl<D, const N: usize, const BLOCK_SIZE: usize> embedded_io_async::Seek for StackPageStream<D, N, BLOCK_SIZE>
 where
     D: BlockDevice<BLOCK_SIZE> + Send + Sync,

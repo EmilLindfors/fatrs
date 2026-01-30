@@ -87,3 +87,9 @@ pub use linux::{BlockDeviceInfo, LinuxBlockDevice, list_block_devices};
 pub mod macos;
 #[cfg(all(target_os = "macos", feature = "macos"))]
 pub use macos::{DiskInfo, MacOSBlockDevice, list_disks};
+
+// RP2040/RP2350 flash module
+#[cfg(feature = "rpflash")]
+pub mod rpflash;
+#[cfg(feature = "rpflash")]
+pub use rpflash::{Error as RpFlashError, RpFlash};

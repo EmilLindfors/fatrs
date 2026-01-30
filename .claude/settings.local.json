@@ -24,7 +24,8 @@
       "Bash(../target/debug/fatrs.exe mkdir test.img:testdir)",
       "Bash(env RUST_LOG=fatrs=trace ../target/debug/fatrs.exe rm test.img:testfile.txt)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Read(//c/Users/EmilLindfors/dev/rp/**)"
     ],
     "deny": [],
     "ask": []

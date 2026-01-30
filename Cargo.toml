@@ -11,3 +11,8 @@ members = [
 ]
 # exclude embedded examples because cargo doesn't do well with multi-arch workspaces
 exclude = ["examples/esp32c6", "examples/rp2040"]
+
+# Patch embassy-rp to use git main branch (has embedded-io-async 0.7 support)
+# Once embassy-rp 0.10+ is released with 0.7 support, this patch can be removed
+[patch.crates-io]
+embassy-rp = { git = "https://github.com/embassy-rs/embassy" }

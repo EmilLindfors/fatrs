@@ -17,7 +17,7 @@ exclude = [
 
 [features]
 # Use Rust std library
-std = ["embedded-io-async/std", "dep:tokio", "dep:embedded-io-adapters"]
+std = ["embedded-io-async/std", "async-lock/std", "dep:tokio", "dep:embedded-io-adapters"]
 # LFN (Long File Name) support
 lfn = []
 # Use dynamic allocation. When used without std please enable core_io/collections
@@ -72,7 +72,8 @@ default = ["std", "alloc", "lfn", "unicode", "log", "time-provider", "fat-cache"
 # core deps
 bitflags = "2.10"
 embedded-io-async = "0.7"
-async-lock = "3.4"
+async-lock = { version = "3.4", default-features = false }
+portable-atomic = { version = "1.0", default-features = false, features = ["fallback"] }
 
 # optional deps
 embedded-io-adapters = { version = "0.7", package = "embedded-io-adapters", features = ["tokio-1"], optional = true }

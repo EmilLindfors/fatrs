@@ -22,7 +22,12 @@ sdio-host = { version = "0.9.0", optional = true }
 embassy-futures = { version = "0.1.1", optional = true }
 crc = { version = "3.4", optional = true, default-features = false }
 
-# Async runtime (for Windows/Linux)
+# RP2040/RP2350 flash dependencies (no_std)
+embassy-rp = { version = "0.9", optional = true, default-features = false }
+embassy-sync = { version = "0.6", optional = true, default-features = false }
+embedded-storage-async = { version = "0.4", optional = true }
+
+# Async runtime (for Windows/Linux and RP flash)
 embedded-io-async = { version = "0.7", optional = true }
 embedded-io = { version = "0.7", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
@@ -46,6 +51,7 @@ default = []
 
 # Platform features
 sdspi = ["embedded-hal-async", "embedded-hal", "sdio-host", "embassy-futures", "crc"]
+rpflash = ["embassy-rp", "embassy-sync", "embedded-storage-async", "embedded-io-async"]
 windows = ["dep:windows", "embedded-io-async", "embedded-io", "tokio", "anyhow", "std"]
 linux = ["nix", "libc", "embedded-io-async", "embedded-io", "tokio", "std"]
 macos = ["nix", "libc", "embedded-io-async", "embedded-io", "tokio", "std"]
